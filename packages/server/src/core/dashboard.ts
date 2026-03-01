@@ -91,6 +91,8 @@ const AGENT_NAMES = [
   "apoc", "mouse", "niobe", "link", "ghost", "zee", "lock", "merovingian",
   "seraph", "sati", "rama", "ajax", "jue", "thadeus", "ballard", "mifune",
   "hamann", "deus", "trainman", "persephone", "keymaker", "architect",
+  "jinx", "vi", "caitlyn", "ekko", "jayce", "viktor", "silco", "vander",
+  "mel", "heimerdinger", "sevika", "singed", "ambessa", "warwick", "isha",
 ];
 
 function hashToIndex(id: string): number {

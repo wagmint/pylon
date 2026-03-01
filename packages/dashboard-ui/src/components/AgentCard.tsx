@@ -18,7 +18,6 @@ const planBadges: Partial<Record<PlanStatus, { label: string; className: string 
 
 export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) {
   const hasActive = workstream.agents.some((a) => a.isActive);
-  const focusAgent = workstream.agents.find((a) => a.isActive);
 
   const activePlan = workstream.plans.find(p => p.status !== "none");
   const badge = activePlan ? planBadges[activePlan.status] : null;
@@ -57,14 +56,6 @@ export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) 
           {workstream.agents.length} agent{workstream.agents.length !== 1 ? "s" : ""}
         </span>
       </div>
-      {focusAgent && (
-        <div className="text-[10px] text-dash-text-dim mt-1 truncate">
-          Focus:{" "}
-          <span className="text-dash-blue font-medium">
-            {focusAgent.currentTask}
-          </span>
-        </div>
-      )}
       {hasTasks && (
         <div className="text-[9px] text-dash-text-muted mt-0.5">
           {tasksDone}/{workstream.planTasks.length} tasks done
@@ -74,11 +65,11 @@ export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) 
         {workstream.agents.map((agent) => (
           <div
             key={agent.sessionId}
-            className="flex items-center gap-1.5 rounded px-0.5 -mx-0.5"
+            className="flex items-center gap-1.5 rounded px-0.5 -mx-0.5 min-w-0"
           >
             <AgentPip status={agent.status} />
-            <span className="text-[10px] text-dash-text-dim">{agent.label}</span>
-            <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono ${
+            <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
+            <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
               agent.agentType === "codex"
                 ? "text-dash-green border-dash-green/30 bg-dash-green/10"
                 : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
@@ -86,6 +77,9 @@ export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) 
               {agent.agentType === "codex" ? "codex" : "claude"}
             </span>
             <OperatorTag operatorId={agent.operatorId} />
+            {agent.currentTask && (
+              <span className="text-[9px] text-dash-text-dim truncate">{agent.currentTask}</span>
+            )}
           </div>
         ))}
       </div>
