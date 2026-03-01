@@ -289,13 +289,87 @@ function listSessionsInDir(dir: string): SessionInfo[] {
  * e.g., /Users/tyler/code/my_project.ai → -Users-tyler-code-my-project-ai
  *
  * Decoding is lossy — we can't distinguish / from _ or . in the original
- * path, so we fall back to replacing - with / (best-effort for display).
+ * path, so we walk the real filesystem to resolve ambiguity. Falls back to
+ * the naive slash-replacement when the path can't be resolved on disk.
  */
+const decodedPathCache = new Map<string, string>();
+
 function decodeProjectName(encoded: string): string {
-  if (encoded.startsWith("-")) {
-    return "/" + encoded.slice(1).replace(/-/g, "/");
+  const cached = decodedPathCache.get(encoded);
+  if (cached !== undefined) return cached;
+
+  const resolved = resolveEncodedPath(encoded);
+  if (resolved) {
+    decodedPathCache.set(encoded, resolved);
+    return resolved;
   }
-  return encoded.replace(/-/g, "/");
+
+  // Fallback: naive decode
+  const fallback = encoded.startsWith("-")
+    ? "/" + encoded.slice(1).replace(/-/g, "/")
+    : encoded.replace(/-/g, "/");
+  decodedPathCache.set(encoded, fallback);
+  return fallback;
+}
+
+/**
+ * Walk the filesystem to find the real path that matches an encoded project name.
+ * At each directory level, compare real entry names (re-encoded) against the
+ * remaining encoded segments to correctly recover hyphens, dots, underscores, etc.
+ */
+function resolveEncodedPath(encoded: string): string | null {
+  const isAbsolute = encoded.startsWith("-");
+  const raw = isAbsolute ? encoded.slice(1) : encoded;
+  const parts = raw.split("-").filter(Boolean);
+  if (parts.length === 0) return null;
+  return resolveSegments(isAbsolute ? "/" : ".", parts, 0);
+}
+
+function resolveSegments(
+  base: string,
+  parts: string[],
+  start: number,
+): string | null {
+  if (start >= parts.length) return base;
+
+  try {
+    const entries = readdirSync(base, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      // Encode this real directory name and split into comparable parts
+      const entryParts = entry.name
+        .replace(/[^a-zA-Z0-9-]/g, "-")
+        .split("-")
+        .filter(Boolean);
+
+      if (entryParts.length === 0) continue;
+      if (start + entryParts.length > parts.length) continue;
+
+      // Check if the encoded entry matches the next N encoded parts
+      let matches = true;
+      for (let i = 0; i < entryParts.length; i++) {
+        if (parts[start + i] !== entryParts[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (!matches) continue;
+
+      const candidate = join(base, entry.name);
+      const nextStart = start + entryParts.length;
+
+      if (nextStart === parts.length) return candidate;
+
+      const result = resolveSegments(candidate, parts, nextStart);
+      if (result) return result;
+    }
+  } catch {
+    // Directory doesn't exist or can't be read
+  }
+
+  return null;
 }
 
 function encodeProjectPath(path: string): string {
