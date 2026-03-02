@@ -129,11 +129,12 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
   const userMsg = events.find((e): e is Extract<CodexEvent, { type: "user_message" }> => e.type === "user_message");
   const userText = userMsg?.text ?? "";
   const userInstruction = cleanCodexInstruction(userText);
-  const { summary, category } = summarizeCodexInstruction(userInstruction);
+  let { summary, category } = summarizeCodexInstruction(userInstruction);
 
   // Extract agent messages
   const agentMsgs = events.filter((e): e is Extract<CodexEvent, { type: "agent_message" }> => e.type === "agent_message");
-  const assistantPreview = agentMsgs[0]?.text?.slice(0, 200) ?? "";
+  const reasoningEvents = events.filter((e): e is Extract<CodexEvent, { type: "agent_reasoning" }> => e.type === "agent_reasoning");
+  const assistantPreview = (agentMsgs[0]?.text ?? stripMarkdownEmphasis(reasoningEvents[0]?.text ?? "")).slice(0, 200);
 
   // Extract commands
   const execEvents = events.filter((e): e is Extract<CodexEvent, { type: "exec_command" }> => e.type === "exec_command");
@@ -173,6 +174,17 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
   const errorEvents = events.filter((e): e is Extract<CodexEvent, { type: "error" }> => e.type === "error");
   errorCount += errorEvents.length;
 
+  const abortedEvent = events.find((e): e is Extract<CodexEvent, { type: "turn_aborted" }> => e.type === "turn_aborted");
+  if (abortedEvent) {
+    summary = "Interrupted";
+    category = "interruption";
+  }
+
+  const webSearchEvents = events.filter((e): e is Extract<CodexEvent, { type: "web_search" }> => e.type === "web_search");
+  const imageEvents = events.filter((e): e is Extract<CodexEvent, { type: "view_image" }> => e.type === "view_image");
+  const searchTerms = webSearchEvents.map((e) => e.query || e.action).filter(Boolean);
+  const filesRead = imageEvents.map((e) => e.path).filter(Boolean);
+
   // Extract token usage — only use the LAST token_count per turn
   // Codex emits a stale pre-request token_count then the real post-request one
   const tokenEvents = events.filter((e): e is Extract<CodexEvent, { type: "token_count" }> => e.type === "token_count");
@@ -208,6 +220,12 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
 
   // Build corrections from error→fix sequences
   const corrections = buildCodexCorrections(events);
+  if (abortedEvent) {
+    corrections.push({
+      error: `Turn ${abortedEvent.reason || "interrupted"}`,
+      fix: "(user interrupted)",
+    });
+  }
 
   // Infer task lifecycle for Codex turns so intent mapping can treat Codex
   // sessions similarly to Claude sessions (which have TaskCreate/TaskUpdate).
@@ -215,15 +233,20 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
   // should create an inferred task, not just "task"/"feedback" categories.
   const hasWork = filesChanged.length > 0 || commands.length > 0 || hasCommit;
   const shouldCreateTask = category === "task" || category === "feedback" || hasWork;
+  const isTurnComplete = events.some((e) => e.type === "turn_complete");
   const inferredTaskId = `codex-${index + 1}`;
   const inferredSubject = summary || userInstruction.slice(0, 80) || `Codex task ${index + 1}`;
+  const inferredStatus =
+    isTurnComplete
+      ? (hasCommit || (hasWork && errorCount === 0) ? "completed" : "pending")
+      : (hasWork ? "in_progress" : "pending");
   const taskCreates = shouldCreateTask
     ? [{ taskId: inferredTaskId, subject: inferredSubject, description: userInstruction.slice(0, 240) }]
     : [];
   const taskUpdates = shouldCreateTask
     ? [{
         taskId: inferredTaskId,
-        status: hasCommit ? "completed" : (filesChanged.length > 0 || commands.length > 0 ? "in_progress" : "pending"),
+        status: inferredStatus,
       }]
     : [];
 
@@ -232,7 +255,11 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     goal: { summary: summary || "(no instruction)", fullInstruction: userInstruction },
     approach: { summary: assistantPreview.slice(0, 150) || "(no approach captured)", thinking: "" },
     decisions: { summary: "(no explicit decisions captured)", items: [] },
-    research: { summary: "(no research)", filesRead: [], searches: [] },
+    research: {
+      summary: buildResearchSummary(filesRead, searchTerms),
+      filesRead: filesRead.map(shortPath),
+      searches: searchTerms.map((s) => stripMarkdownEmphasis(s)),
+    },
     actions: buildCodexActionsSection(commands, filesChanged),
     corrections: {
       summary: corrections.length > 0
@@ -262,7 +289,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     toolCalls,
     toolCounts,
     filesChanged,
-    filesRead: [],
+    filesRead,
     commands,
     hasCommit,
     commitMessage,
@@ -403,6 +430,17 @@ function buildArtifactsSummary(filesChanged: string[], commits: string[], hasCom
   if (commits.length > 0) parts.push(`${commits.length} commit${commits.length > 1 ? "s" : ""}`);
   if (hasCompaction) parts.push("compaction");
   return parts.length > 0 ? parts.join(", ") : "(no artifacts)";
+}
+
+function buildResearchSummary(filesRead: string[], searches: string[]): string {
+  const parts: string[] = [];
+  if (filesRead.length > 0) parts.push(`read ${filesRead.length} image${filesRead.length > 1 ? "s" : ""}`);
+  if (searches.length > 0) parts.push(`${searches.length} web search${searches.length > 1 ? "es" : ""}`);
+  return parts.length > 0 ? parts.join(", ") : "(no research)";
+}
+
+function stripMarkdownEmphasis(text: string): string {
+  return text.replace(/\*\*/g, "").trim();
 }
 
 function shortPath(filePath: string): string {

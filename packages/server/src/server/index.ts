@@ -7,7 +7,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
 import { buildDashboardState } from "../core/dashboard.js";
-import { blockedSessions, clearStaleBlocked, ensureHooks, createPendingDecision, resolveDecision, type BlockedInfo } from "../core/blocked.js";
+import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, resolveDecision, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -286,7 +286,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 
       // Clean up blocked state when decision arrives (user decided from UI)
       if (decision === "allow" || decision === "deny") {
-        blockedSessions.delete(sessionId);
+        clearBlockedSession(sessionId);
       }
 
       // "prompt" means timeout/fallback — return empty so script outputs nothing
@@ -304,6 +304,26 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     } catch {
       // On any error, return empty — script outputs nothing, local dialog appears
       return c.text("");
+    }
+  });
+
+  /** Clear blocked state when tool execution proceeds (e.g., terminal-side approval) */
+  app.post("/api/hooks/unblocked", async (c) => {
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const sessionId = pickString(body, "session_id", "sessionId")
+        ?? deriveSessionIdFromTranscript(pickString(body, "transcript_path", "transcriptPath"));
+      if (!sessionId) {
+        return c.json({ error: "Missing session_id" }, 400);
+      }
+      // Ignore stale unblocked callbacks while a newer permission request is pending.
+      if (hasPendingDecision(sessionId)) {
+        return c.json({ ok: true, skipped: "pending_decision" });
+      }
+      clearBlockedSession(sessionId);
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400);
     }
   });
 

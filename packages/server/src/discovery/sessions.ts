@@ -203,6 +203,28 @@ export function getActiveSessions(): SessionInfo[] {
       } catch { /* file vanished */ }
     }
 
+    // Filter cwdPids to root claude processes only (exclude subagent children).
+    // Claude Code's Task tool spawns child `claude` processes that share the
+    // parent's cwd but don't represent independent sessions. Without this,
+    // Strategy 2 over-counts PIDs and pulls in stale sessions from disk.
+    try {
+      const allPidSet = new Set(pidList.split(","));
+      const ppidOut = execSync(
+        `ps -o pid=,ppid= -p ${pidList} 2>/dev/null || true`,
+        { encoding: "utf-8", timeout: 3000 }
+      ).trim();
+      for (const line of ppidOut.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 2 && allPidSet.has(parts[1])) {
+          // This PID's parent is also a claude process — it's a subagent
+          for (const pidSet of cwdPids.values()) pidSet.delete(parts[0]);
+        }
+      }
+      for (const [cwd, pidSet] of cwdPids) {
+        if (pidSet.size === 0) cwdPids.delete(cwd);
+      }
+    } catch { /* ps failed — keep all PIDs as fallback */ }
+
     // Strategy 2: For remaining PIDs with cwd but no .jsonl match, use mtime heuristic
     const seenProjects = new Set<string>();
     for (const [cwd, pids] of cwdPids) {

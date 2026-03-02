@@ -63,6 +63,24 @@ export function resolveDecision(sessionId: string, decision: "allow" | "deny"): 
   return true;
 }
 
+/** Whether a permission-gate decision is currently pending for this session. */
+export function hasPendingDecision(sessionId: string): boolean {
+  return pendingDecisions.has(sessionId);
+}
+
+/**
+ * Clear blocked state for a session and release any pending gate wait as "prompt".
+ * Used when the session resumes through terminal-side approval/interaction.
+ */
+export function clearBlockedSession(sessionId: string): void {
+  blockedSessions.delete(sessionId);
+  const pending = pendingDecisions.get(sessionId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pending.resolve("prompt");
+  pendingDecisions.delete(sessionId);
+}
+
 /** Max age before a blocked entry is auto-purged (safety net for crashed sessions) */
 const BLOCKED_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -116,14 +134,7 @@ export function clearStaleBlocked(): void {
     }
 
     if (shouldClear) {
-      blockedSessions.delete(sessionId);
-      // Also resolve any pending gate decision so the long-poll returns
-      const pending = pendingDecisions.get(sessionId);
-      if (pending) {
-        clearTimeout(pending.timer);
-        pending.resolve("prompt");
-        pendingDecisions.delete(sessionId);
-      }
+      clearBlockedSession(sessionId);
     }
   }
 }
@@ -139,7 +150,14 @@ function hasUnblockEvidence(transcriptPath: string, snapshotSize: number): boole
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line) as unknown;
-        if (lineContainsToolResult(parsed) || lineContainsUserMessage(parsed)) {
+        // Any clear post-block activity means the permission gate is no longer pending:
+        // user follow-up, assistant response/tool use, or tool result/rejection output.
+        if (
+          lineContainsToolResult(parsed)
+          || lineContainsUserMessage(parsed)
+          || lineContainsAssistantMessage(parsed)
+          || lineContainsToolUse(parsed)
+        ) {
           return true;
         }
       } catch {
@@ -166,6 +184,19 @@ function lineContainsUserMessage(raw: unknown): boolean {
   return false;
 }
 
+function lineContainsAssistantMessage(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const obj = raw as Record<string, unknown>;
+
+  if (obj.role === "assistant") return true;
+  if (obj.message && typeof obj.message === "object") {
+    const msg = obj.message as Record<string, unknown>;
+    if (msg.role === "assistant") return true;
+  }
+
+  return false;
+}
+
 function lineContainsToolResult(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") return false;
   const obj = raw as Record<string, unknown>;
@@ -180,6 +211,23 @@ function lineContainsToolResult(raw: unknown): boolean {
     !!block
     && typeof block === "object"
     && (block as Record<string, unknown>).type === "tool_result"
+  ));
+}
+
+function lineContainsToolUse(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const obj = raw as Record<string, unknown>;
+
+  const message = obj.message && typeof obj.message === "object"
+    ? (obj.message as Record<string, unknown>)
+    : obj;
+  const content = message.content;
+  if (!Array.isArray(content)) return false;
+
+  return content.some((block) => (
+    !!block
+    && typeof block === "object"
+    && (block as Record<string, unknown>).type === "tool_use"
   ));
 }
 
@@ -267,6 +315,18 @@ const NOTIFICATION_HOOK = {
   ],
 };
 
+/** Fire-and-forget unblocked notification (PostToolUse) */
+const UNBLOCKED_HOOK = {
+  matcher: ".*",
+  hooks: [
+    {
+      type: "command",
+      command: `curl -s -X POST http://localhost:7433/api/hooks/unblocked -H 'Content-Type: application/json' -d @- &>/dev/null`,
+      timeout: 5,
+    },
+  ],
+};
+
 /** Permission gate hook (PermissionRequest — long-poll via script) */
 const PERMISSION_GATE_HOOK = {
   matcher: ".*",
@@ -322,6 +382,7 @@ function hasHexdeckCommand(entry: unknown, marker: string): boolean {
  *
  * - PermissionRequest: permission-gate hook (long-poll for remote approve/deny)
  * - PreToolUse: fire-and-forget notification for AskUserQuestion/ExitPlanMode
+ * - PostToolUse: clear blocked state quickly when tool actually runs
  * - Stop: removed (not useful)
  *
  * Migrates old fire-and-forget PermissionRequest hooks to the new gate hook.
@@ -405,6 +466,17 @@ export function ensureHooks(): void {
     }
     if (!interactiveHookInstalled) {
       preToolHooks.push(NOTIFICATION_HOOK);
+      dirty = true;
+    }
+
+    // ── PostToolUse: clear stale blocked state on resumed execution ──
+    if (!Array.isArray(hooks["PostToolUse"])) {
+      hooks["PostToolUse"] = [];
+    }
+    const postToolHooks = hooks["PostToolUse"] as unknown[];
+    const postInstalled = postToolHooks.some((entry) => hasHexdeckCommand(entry, "api/hooks/unblocked"));
+    if (!postInstalled) {
+      postToolHooks.push(UNBLOCKED_HOOK);
       dirty = true;
     }
 

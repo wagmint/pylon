@@ -94,6 +94,19 @@ export function buildFeed(
         });
       }
 
+      if (turn.category === "interruption") {
+        addEvent({
+          id: `interrupted-${sessionId}-${turn.index}`,
+          type: "idle",
+          timestamp,
+          agentLabel: label,
+          sessionId,
+          projectPath,
+          operatorId,
+          message: "Turn interrupted by user",
+        });
+      }
+
       if (turn.hasPlanStart) {
         addEvent({
           id: `plan-start-${sessionId}-${turn.index}`,

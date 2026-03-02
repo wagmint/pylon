@@ -6,10 +6,14 @@ export type CodexEvent =
   | { type: "session_meta"; line: number; timestamp: Date; id: string; cwd: string; source: string; model?: string; gitBranch?: string }
   | { type: "turn_started"; line: number; timestamp: Date }
   | { type: "turn_complete"; line: number; timestamp: Date }
+  | { type: "turn_aborted"; line: number; timestamp: Date; reason: string }
   | { type: "user_message"; line: number; timestamp: Date; text: string }
   | { type: "agent_message"; line: number; timestamp: Date; text: string }
+  | { type: "agent_reasoning"; line: number; timestamp: Date; text: string }
   | { type: "exec_command"; line: number; timestamp: Date; command: string[]; exitCode: number; status: string }
   | { type: "patch_apply"; line: number; timestamp: Date; files: string[]; success: boolean }
+  | { type: "web_search"; line: number; timestamp: Date; query: string; action: string }
+  | { type: "view_image"; line: number; timestamp: Date; path: string }
   | {
       type: "token_count";
       line: number;
@@ -165,6 +169,15 @@ function parseEventMsg(payload: Record<string, unknown>, line: number, ts: Date)
       const text = extractText(payload);
       return { type: "agent_message", line, timestamp: ts, text };
     }
+    case "agent_reasoning": {
+      const text = typeof payload.text === "string" ? payload.text : extractText(payload);
+      if (!text.trim()) return null;
+      return { type: "agent_reasoning", line, timestamp: ts, text };
+    }
+    case "turn_aborted": {
+      const reason = typeof payload.reason === "string" ? payload.reason : "interrupted";
+      return { type: "turn_aborted", line, timestamp: ts, reason };
+    }
 
     case "exec_command_end": {
       const command = extractStringArray(payload.command ?? payload.args);
@@ -245,6 +258,16 @@ function parseResponseItem(
     return { type: "agent_message", line, timestamp: ts, text };
   }
 
+  if (itemType === "web_search_call") {
+    const actionObj = (payload.action ?? {}) as Record<string, unknown>;
+    const action = typeof actionObj.type === "string" ? actionObj.type : "search";
+    const query =
+      typeof payload.query === "string" ? payload.query
+      : typeof payload.text === "string" ? payload.text
+      : "web search";
+    return { type: "web_search", line, timestamp: ts, query, action };
+  }
+
   // LocalShellCall — command execution (older Codex format)
   if (itemType === "LocalShellCall" || itemType === "local_shell_call") {
     const command = extractStringArray(payload.command ?? payload.args);
@@ -258,6 +281,12 @@ function parseResponseItem(
   if (itemType === "function_call") {
     const callId = typeof payload.call_id === "string" ? payload.call_id : null;
     const name = typeof payload.name === "string" ? payload.name : "";
+    if (name === "view_image") {
+      const args = typeof payload.arguments === "string" ? tryParseJson(payload.arguments) : payload.arguments;
+      const argObj = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+      const path = typeof argObj.path === "string" ? argObj.path : "";
+      return { type: "view_image", line, timestamp: ts, path };
+    }
     if (callId && (name === "exec_command" || name === "write_stdin")) {
       const args = typeof payload.arguments === "string" ? tryParseJson(payload.arguments) : payload.arguments;
       pendingCalls.set(callId, { name, args, line, ts });
