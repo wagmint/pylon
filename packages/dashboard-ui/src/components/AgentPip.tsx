@@ -15,9 +15,9 @@ const statusConfig: Record<AgentStatus, {
   animation?: string;
 }> = {
   idle: {
-    bg: "bg-dash-green-dim",
-    border: "border-dash-green",
-    text: "text-dash-green",
+    bg: "bg-dash-surface-2",
+    border: "border-dash-text-muted",
+    text: "text-dash-text-muted",
     icon: "\u2713",
   },
   busy: {

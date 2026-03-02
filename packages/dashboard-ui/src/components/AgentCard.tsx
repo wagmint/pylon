@@ -33,7 +33,7 @@ export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) 
     ? "border-l-dash-blue animate-dash-breathe"
     : hasBusy
       ? "border-l-dash-green animate-dash-pulse"
-      : "border-l-dash-green";
+      : "border-l-dash-text-muted";
 
   return (
     <div
