@@ -125,8 +125,12 @@ export function worstSeverity(
   state: DashboardState,
 ): TraySeverity {
   const active = state.agents.filter((a) => a.isActive);
+  const hasBusy = active.some((a) => a.status === "busy");
+  const hasWarning = active.some((a) => a.status === "warning" || a.status === "conflict");
+
   if (alerts.some((a) => a.severity === "red")) return "red";
   if (active.some((a) => a.status === "blocked") || alerts.some((a) => a.severity === "blue")) return "blue";
-  if (active.length > 0) return "green";
+  if (hasBusy) return "green";
+  if (hasWarning || alerts.some((a) => a.severity === "yellow")) return "yellow";
   return "grey";
 }
