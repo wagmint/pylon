@@ -178,9 +178,11 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
   const tokenEvents = events.filter((e): e is Extract<CodexEvent, { type: "token_count" }> => e.type === "token_count");
   const tokenUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
   const lastTokenEvent = tokenEvents[tokenEvents.length - 1];
+  const contextWindowTokens = lastTokenEvent?.modelContextWindow ?? null;
   if (lastTokenEvent) {
     tokenUsage.inputTokens = lastTokenEvent.inputTokens;
     tokenUsage.outputTokens = lastTokenEvent.outputTokens;
+    tokenUsage.cacheReadInputTokens = lastTokenEvent.cachedInputTokens;
   }
 
   // Compaction
@@ -277,6 +279,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     taskUpdates,
     tokenUsage,
     model: sessionModel ?? "codex",
+    contextWindowTokens,
     durationMs,
     events: [], // SessionEvent is Claude-specific
     startLine: events[0].line,

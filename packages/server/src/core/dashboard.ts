@@ -1154,10 +1154,11 @@ export function buildDashboardState(): DashboardState {
   }));
 
   // 10. Build summary — only active agents are exposed
+  const riskOrder: Record<string, number> = { critical: 0, elevated: 1, nominal: 2 };
   const activeAgents = agents
     .filter(a => a.isActive)
     .sort((a, b) => (
-      (sessionLastActivityMs.get(b.sessionId) ?? 0) - (sessionLastActivityMs.get(a.sessionId) ?? 0)
+      (riskOrder[a.risk.overallRisk] ?? 2) - (riskOrder[b.risk.overallRisk] ?? 2)
       || a.label.localeCompare(b.label)
       || a.sessionId.localeCompare(b.sessionId)
     ));

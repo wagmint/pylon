@@ -66,51 +66,68 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
         </div>
       )}
       <div className="mt-1.5 space-y-0.5">
-        {workstream.agents.map((agent) => (
-          <div
-            key={agent.sessionId}
-            className="flex items-center gap-1.5 rounded px-0.5 -mx-0.5 min-w-0"
-          >
-            <AgentPip status={agent.status} />
-            <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
-            <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
-              agent.agentType === "codex"
-                ? "text-dash-green border-dash-green/30 bg-dash-green/10"
-                : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
-            }`}>
-              {agent.agentType === "codex" ? "codex" : "claude"}
-            </span>
-            <OperatorTag operatorId={agent.operatorId} />
-            {agent.status === "blocked" && agent.blockedOn?.description ? (
-              <>
-                <span className="text-[9px] text-dash-blue truncate">{agent.blockedOn.description}</span>
-                {agent.blockedOn.detail && (
-                  <span className="text-[8px] text-dash-text-dim font-mono truncate max-w-[100px]" title={agent.blockedOn.detail}>
-                    {agent.blockedOn.detail}
-                  </span>
-                )}
-                {onDecide && (
-                  <>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "approve"); }}
-                      className="text-[8px] font-semibold px-1 py-px rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors shrink-0"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "deny"); }}
-                      className="text-[8px] font-semibold px-1 py-px rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors shrink-0"
-                    >
-                      Deny
-                    </button>
-                  </>
-                )}
-              </>
-            ) : agent.currentTask ? (
-              <span className="text-[9px] text-dash-text-dim truncate">{agent.currentTask}</span>
-            ) : null}
-          </div>
-        ))}
+        {workstream.agents.map((agent) =>
+          agent.status === "blocked" && agent.blockedOn?.description ? (
+            <div
+              key={agent.sessionId}
+              className="rounded border border-dash-blue/20 bg-dash-blue/5 px-2 py-1.5 -mx-0.5 space-y-1"
+            >
+              <div className="flex items-center gap-1.5">
+                <AgentPip status={agent.status} />
+                <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
+                <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
+                  agent.agentType === "codex"
+                    ? "text-dash-green border-dash-green/30 bg-dash-green/10"
+                    : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
+                }`}>
+                  {agent.agentType === "codex" ? "codex" : "claude"}
+                </span>
+                <OperatorTag operatorId={agent.operatorId} />
+              </div>
+              <div className="text-[9px] text-dash-blue truncate">{agent.blockedOn.description}</div>
+              {agent.blockedOn.detail && (
+                <div className="text-[8px] text-dash-text-dim font-mono truncate" title={agent.blockedOn.detail}>
+                  {agent.blockedOn.detail}
+                </div>
+              )}
+              {onDecide && (
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "approve"); }}
+                    className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "deny"); }}
+                    className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors"
+                  >
+                    Deny
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div
+              key={agent.sessionId}
+              className="flex items-center gap-1.5 rounded px-0.5 -mx-0.5 min-w-0"
+            >
+              <AgentPip status={agent.status} />
+              <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
+              <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
+                agent.agentType === "codex"
+                  ? "text-dash-green border-dash-green/30 bg-dash-green/10"
+                  : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
+              }`}>
+                {agent.agentType === "codex" ? "codex" : "claude"}
+              </span>
+              <OperatorTag operatorId={agent.operatorId} />
+              {agent.currentTask ? (
+                <span className="text-[9px] text-dash-text-dim truncate">{agent.currentTask}</span>
+              ) : null}
+            </div>
+          )
+        )}
       </div>
     </div>
   );

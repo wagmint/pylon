@@ -297,6 +297,7 @@ function buildSingleTurn(events: SessionEvent[], index: number): TurnNode | null
     taskUpdates,
     tokenUsage,
     model,
+    contextWindowTokens: null,
     durationMs: null,
     events,
     startLine: events[0].line,
@@ -913,5 +914,4 @@ function extractCommitMessage(cmd: string): string | null {
 
   return null;
 }
-
 

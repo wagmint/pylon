@@ -10,7 +10,15 @@ export type CodexEvent =
   | { type: "agent_message"; line: number; timestamp: Date; text: string }
   | { type: "exec_command"; line: number; timestamp: Date; command: string[]; exitCode: number; status: string }
   | { type: "patch_apply"; line: number; timestamp: Date; files: string[]; success: boolean }
-  | { type: "token_count"; line: number; timestamp: Date; inputTokens: number; outputTokens: number }
+  | {
+      type: "token_count";
+      line: number;
+      timestamp: Date;
+      inputTokens: number;
+      outputTokens: number;
+      cachedInputTokens: number;
+      modelContextWindow: number | null;
+    }
   | { type: "compaction"; line: number; timestamp: Date; summary: string }
   | { type: "error"; line: number; timestamp: Date; message: string }
   | { type: "shutdown"; line: number; timestamp: Date };
@@ -180,9 +188,20 @@ function parseEventMsg(payload: Record<string, unknown>, line: number, ts: Date)
         : typeof payload.input_tokens === "number" ? payload.input_tokens : 0;
       const outputTokens = typeof usage.output_tokens === "number" ? usage.output_tokens
         : typeof payload.output_tokens === "number" ? payload.output_tokens : 0;
+      const cachedInputTokens = typeof usage.cached_input_tokens === "number" ? usage.cached_input_tokens
+        : typeof payload.cached_input_tokens === "number" ? payload.cached_input_tokens : 0;
+      const modelContextWindow = typeof info.model_context_window === "number" ? info.model_context_window : null;
       // Skip events with no actual usage data (rate-limit-only events where info is null)
-      if (inputTokens === 0 && outputTokens === 0) return null;
-      return { type: "token_count", line, timestamp: ts, inputTokens, outputTokens };
+      if (inputTokens === 0 && outputTokens === 0 && cachedInputTokens === 0) return null;
+      return {
+        type: "token_count",
+        line,
+        timestamp: ts,
+        inputTokens,
+        outputTokens,
+        cachedInputTokens,
+        modelContextWindow,
+      };
     }
 
     case "context_compacted": {

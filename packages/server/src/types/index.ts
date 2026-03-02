@@ -333,6 +333,8 @@ export interface TurnNode {
   tokenUsage: TokenUsage;
   /** Model used in this turn */
   model: string | null;
+  /** Context window tokens for this turn's model (if available from provider telemetry). */
+  contextWindowTokens: number | null;
   /** Duration of this turn in ms (from system metadata, if available) */
   durationMs: number | null;
 

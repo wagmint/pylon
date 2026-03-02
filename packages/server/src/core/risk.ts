@@ -1,6 +1,8 @@
 import type { ParsedSession, TurnNode, AgentRisk, WorkstreamRisk, SpinningSignal, RiskLevel, Agent, ModelCost } from "../types/index.js";
 import { computeTurnCost, shortModelName } from "./pricing.js";
 
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
+
 /**
  * Compute risk analytics for a single agent session.
  */
@@ -102,7 +104,11 @@ export function computeAgentRisk(parsed: ParsedSession, errorHistory?: boolean[]
   // especially after compaction when older turns have small context)
   const lastTurn = turns[turns.length - 1];
   const currentContextTokens = lastTurn ? getLastCallContextSize(lastTurn) : 0;
-  const contextUsagePct = Math.min(100, Math.round(currentContextTokens / 200_000 * 100));
+  const contextWindowTokens =
+    lastTurn && typeof lastTurn.contextWindowTokens === "number" && lastTurn.contextWindowTokens > 0
+      ? lastTurn.contextWindowTokens
+      : DEFAULT_CONTEXT_WINDOW_TOKENS;
+  const contextUsagePct = Math.min(100, Math.round(currentContextTokens / contextWindowTokens * 100));
 
   return {
     errorRate,
@@ -272,9 +278,10 @@ function getLastCallContextSize(turn: TurnNode): number {
       return evt.usage.inputTokens + evt.usage.cacheReadInputTokens + evt.usage.cacheCreationInputTokens;
     }
   }
-  // Fallback: no individual event usage — use aggregated (better than 0)
+  // Fallback (Codex turns have no per-event SessionEvent envelopes):
+  // cached_input_tokens in Codex is a subset of input_tokens, so avoid double-counting.
   const u = turn.tokenUsage;
-  return u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+  return Math.max(u.inputTokens, u.cacheReadInputTokens + u.cacheCreationInputTokens);
 }
 
 function shortPath(filePath: string): string {

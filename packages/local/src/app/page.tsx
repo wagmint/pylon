@@ -384,6 +384,7 @@ export default function DashboardPage() {
                           }
                         : undefined
                     }
+                    onDecide={handleDecide}
                   />
                 ))
               )}

@@ -8,6 +8,7 @@ interface FeedItemProps {
   event: FeedEvent;
   isNew?: boolean;
   onClick?: () => void;
+  onDecide?: (sessionId: string, action: "approve" | "deny") => void;
 }
 
 const typeConfig: Record<
@@ -77,7 +78,7 @@ const typeConfig: Record<
   },
 };
 
-export function FeedItem({ event, isNew, onClick }: FeedItemProps) {
+export function FeedItem({ event, isNew, onClick, onDecide }: FeedItemProps) {
   const config = typeConfig[event.type];
   const { getOperator, isMultiOperator } = useOperators();
   const operator = isMultiOperator ? getOperator(event.operatorId) : undefined;
@@ -110,6 +111,22 @@ export function FeedItem({ event, isNew, onClick }: FeedItemProps) {
         )}
         {" "}
         {event.message}
+        {event.type === "blocked" && onDecide && (
+          <span className="inline-flex items-center gap-1 ml-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDecide(event.sessionId, "approve"); }}
+              className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors"
+            >
+              Approve
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDecide(event.sessionId, "deny"); }}
+              className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors"
+            >
+              Deny
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );
