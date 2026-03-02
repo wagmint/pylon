@@ -6,7 +6,7 @@ const dotColor: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
   busy: "bg-dash-green",
   warning: "bg-dash-yellow",
-  conflict: "bg-dash-red",
+  conflict: "bg-dash-yellow",
   blocked: "bg-dash-blue",
 };
 

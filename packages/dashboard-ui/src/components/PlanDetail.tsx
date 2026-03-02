@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { SessionPlan, Workstream, DraftingActivity, IntentTaskView } from "../types";
+import type { SessionPlan, Workstream, DraftingActivity, IntentTaskView, AgentType } from "../types";
 import { OperatorTag } from "./OperatorTag";
 import { timeAgo, formatDuration } from "../utils";
 
@@ -16,6 +16,7 @@ interface PlanEntry {
   tasksDone: number;
   tasksTotal: number;
   operatorId: string;
+  agentType: AgentType;
 }
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -45,6 +46,7 @@ function collectPlans(workstreams: Workstream[]): PlanEntry[] {
         tasksDone: done,
         tasksTotal: plan.tasks.length,
         operatorId: matchingAgent?.operatorId ?? "self",
+        agentType: matchingAgent?.agentType ?? "claude",
       });
     }
   }
@@ -166,6 +168,11 @@ function PlanOverview({ entries, onSelect }: { entries: PlanEntry[]; onSelect: (
                   {cfg && (
                     <span className={`text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 ${cfg.bg} ${cfg.color}`}>
                       {cfg.label}
+                    </span>
+                  )}
+                  {entry.agentType === "codex" && (
+                    <span className="text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-green-dim text-dash-green">
+                      CODEX
                     </span>
                   )}
                 </div>

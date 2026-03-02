@@ -4,7 +4,7 @@ const statusDot: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
   busy: "bg-dash-green",
   warning: "bg-dash-yellow",
-  conflict: "bg-dash-red",
+  conflict: "bg-dash-yellow",
   blocked: "bg-dash-blue",
 };
 
@@ -115,7 +115,7 @@ function AgentRow({
           </p>
         )}
         {agent.status === "conflict" && (
-          <p className="text-[10px] text-dash-red truncate mt-0.5">
+          <p className="text-[10px] text-dash-yellow truncate mt-0.5">
             File collision detected
           </p>
         )}

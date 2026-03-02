@@ -10,6 +10,8 @@ export interface BlockedInfo {
   toolName: string;
   toolInput: Record<string, unknown>;
   blockedAt: number;
+  /** JSONL file size (bytes) when the hook was received. Used to detect user response. */
+  snapshotSize: number;
 }
 
 export const blockedSessions = new Map<string, BlockedInfo>();
@@ -19,7 +21,7 @@ const BLOCKED_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Auto-clear stale blocked entries. Called each ticker cycle before buildDashboardState().
- * - Clears if the session's JSONL file mtime > blockedAt (user responded)
+ * - Clears if the session's JSONL file has grown since the hook was received (user responded)
  * - Purges entries for sessions no longer active
  * - Purges entries older than TTL
  */
@@ -44,12 +46,15 @@ export function clearStaleBlocked(): void {
       continue;
     }
 
-    // Clear if JSONL file was modified after blockedAt (user responded to permission)
+    // Clear if JSONL file has grown since hook receipt (user responded).
+    // File size is immune to the mtime race: Claude Code may touch the file
+    // after firing the hook (updating mtime), but a user response always
+    // appends a full tool_result JSON line — measurable growth.
     const session = activeByIdMap.get(sessionId);
     if (session) {
       try {
-        const mtime = statSync(session.path).mtimeMs;
-        if (mtime > info.blockedAt) {
+        const currentSize = statSync(session.path).size;
+        if (info.snapshotSize > 0 && currentSize > info.snapshotSize) {
           blockedSessions.delete(sessionId);
         }
       } catch {
@@ -78,8 +83,12 @@ const HEXDECK_HOOK = {
   ],
 };
 
+/** Hook event types that mean "agent is waiting for user action" */
+const HOOK_EVENTS = ["PermissionRequest", "Stop"] as const;
+
 /**
- * Ensure the PermissionRequest hook is installed in ~/.claude/settings.json.
+ * Ensure hexdeck hooks are installed in ~/.claude/settings.json.
+ * Hooks into PermissionRequest (tool approvals) and Stop (plan approval, idle prompt).
  * Preserves all existing user hooks. Only runs once at server startup.
  */
 export function ensureHooks(): void {
@@ -100,36 +109,41 @@ export function ensureHooks(): void {
       }
     }
 
-    // Navigate to hooks.PermissionRequest
     if (!settings.hooks || typeof settings.hooks !== "object") {
       settings.hooks = {};
     }
     const hooks = settings.hooks as Record<string, unknown>;
 
-    if (!Array.isArray(hooks.PermissionRequest)) {
-      hooks.PermissionRequest = [];
-    }
-    const permHooks = hooks.PermissionRequest as unknown[];
+    let dirty = false;
 
-    // Check if hexdeck hook already exists
-    const alreadyInstalled = permHooks.some((entry: unknown) => {
-      if (!entry || typeof entry !== "object") return false;
-      const e = entry as Record<string, unknown>;
-      if (!Array.isArray(e.hooks)) return false;
-      return (e.hooks as unknown[]).some((h: unknown) => {
-        if (!h || typeof h !== "object") return false;
-        const hk = h as Record<string, unknown>;
-        return typeof hk.command === "string" && hk.command.includes(HOOK_MARKER);
+    for (const eventType of HOOK_EVENTS) {
+      if (!Array.isArray(hooks[eventType])) {
+        hooks[eventType] = [];
+      }
+      const eventHooks = hooks[eventType] as unknown[];
+
+      // Check if hexdeck hook already exists for this event
+      const alreadyInstalled = eventHooks.some((entry: unknown) => {
+        if (!entry || typeof entry !== "object") return false;
+        const e = entry as Record<string, unknown>;
+        if (!Array.isArray(e.hooks)) return false;
+        return (e.hooks as unknown[]).some((h: unknown) => {
+          if (!h || typeof h !== "object") return false;
+          const hk = h as Record<string, unknown>;
+          return typeof hk.command === "string" && hk.command.includes(HOOK_MARKER);
+        });
       });
-    });
 
-    if (alreadyInstalled) return;
+      if (!alreadyInstalled) {
+        eventHooks.push(HEXDECK_HOOK);
+        dirty = true;
+      }
+    }
 
-    // Append our hook entry
-    permHooks.push(HEXDECK_HOOK);
+    if (!dirty) return;
 
     writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
-    console.log("Hexdeck: installed PermissionRequest hook in ~/.claude/settings.json");
+    console.log("Hexdeck: installed hooks in ~/.claude/settings.json");
   } catch (err) {
     console.error("Hexdeck: failed to install hooks:", err);
   }

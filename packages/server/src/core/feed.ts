@@ -54,7 +54,7 @@ export function buildFeed(
       if (turn.hasCommit) {
         addEvent({
           id: `commit-${sessionId}-${turn.index}`,
-          type: "completion",
+          type: "commit",
           timestamp,
           agentLabel: label,
           sessionId,
@@ -63,6 +63,8 @@ export function buildFeed(
           message: turn.commitMessage
             ? `Committed: ${turn.commitMessage}`
             : `Committed changes to ${turn.filesChanged.length} file(s)`,
+          commitSha: turn.commitSha ?? undefined,
+          commitFiles: turn.filesChanged.length > 0 ? turn.filesChanged : undefined,
         });
       }
 
@@ -207,7 +209,9 @@ export function buildFeed(
         sessionId,
         projectPath: session?.session.projectPath ?? "",
         operatorId: opId(sessionId),
-        message: `Waiting for permission: ${info.toolName}`,
+        message: info.toolName && info.toolName !== "unknown"
+          ? `Waiting for permission: ${info.toolName}`
+          : "Waiting for user input",
       });
     }
   }

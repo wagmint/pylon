@@ -19,7 +19,7 @@ const agentDot: Record<AgentStatus, string> = {
   busy: "bg-dash-green animate-pulse",
   idle: "bg-dash-text-muted",
   warning: "bg-dash-yellow",
-  conflict: "bg-dash-red",
+  conflict: "bg-dash-yellow",
   blocked: "bg-dash-blue animate-dash-breathe",
 };
 
@@ -74,13 +74,24 @@ function renderTask(task: IntentTaskView) {
   );
 }
 
+function getCodexBadge(workstream: Workstream): { label: string; className: string } {
+  const hasWarning = workstream.agents.some(a => a.status === "warning");
+  if (hasWarning) return { label: "ERRORS", className: "text-dash-red bg-dash-red/10" };
+  const hasBusy = workstream.agents.some(a => a.status === "busy");
+  if (hasBusy) return { label: "EXECUTING", className: "text-dash-green bg-dash-green/10" };
+  return { label: "IDLE", className: "text-dash-text-muted bg-dash-surface-2" };
+}
+
 export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
+  const isCodex = workstream.mode === "codex";
   const hasBusy = workstream.agents.some(a => a.status === "busy");
   const statusColor = hasBusy
     ? "bg-dash-green animate-dash-pulse"
     : "bg-dash-green";
 
-  const badge = intentStatusBadge[workstream.intentStatus];
+  const badge = isCodex
+    ? getCodexBadge(workstream)
+    : intentStatusBadge[workstream.intentStatus];
   const coverageHelp = "Share of planned tasks that are active or done.";
   const driftHelp = "Share of work happening outside planned tasks.";
   const confidenceHelp = "How reliable the intent mapping is.";
@@ -101,23 +112,36 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
           <span className="text-dash-green">
             {workstream.agents.filter((a) => a.isActive).length} active
           </span>
-          <span className="inline-flex items-center gap-1 text-dash-green">
-            <span>{workstream.intentCoveragePct}% coverage</span>
-            <MetricHelp text={coverageHelp} align="left" />
-          </span>
-          <span className={`inline-flex items-center gap-1 ${workstream.driftPct > 0 ? "text-dash-yellow" : ""}`}>
-            <span>{workstream.driftPct}% drift</span>
-            <MetricHelp text={driftHelp} align="left" />
-          </span>
-          <span className={`inline-flex items-center gap-1 ${confidenceClass[workstream.intentConfidence]}`}>
-            <span>{workstream.intentConfidence} confidence</span>
-            <MetricHelp text={confidenceHelp} align="right" />
-          </span>
+          {isCodex ? (
+            <>
+              <span>{workstream.totalCommands} cmds</span>
+              <span>{workstream.totalPatches} files</span>
+              <span>{workstream.commits} commits</span>
+              {workstream.errors > 0 && (
+                <span className="text-dash-red">{workstream.errors} errors</span>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1 text-dash-green">
+                <span>{workstream.intentCoveragePct}% coverage</span>
+                <MetricHelp text={coverageHelp} align="left" />
+              </span>
+              <span className={`inline-flex items-center gap-1 ${workstream.driftPct > 0 ? "text-dash-yellow" : ""}`}>
+                <span>{workstream.driftPct}% drift</span>
+                <MetricHelp text={driftHelp} align="left" />
+              </span>
+              <span className={`inline-flex items-center gap-1 ${confidenceClass[workstream.intentConfidence]}`}>
+                <span>{workstream.intentConfidence} confidence</span>
+                <MetricHelp text={confidenceHelp} align="right" />
+              </span>
+            </>
+          )}
           {workstream.lastIntentUpdateAt && (
             <span>updated {timeAgo(workstream.lastIntentUpdateAt)}</span>
           )}
           {workstream.hasCollision && (
-            <span className="text-dash-red font-semibold">COLLISION</span>
+            <span className="text-dash-yellow font-semibold">COLLISION</span>
           )}
         </div>
 
@@ -138,7 +162,7 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
           ))}
         </div>
 
-        {workstream.driftReasons.length > 0 && (
+        {!isCodex && workstream.driftReasons.length > 0 && (
           <div className="mt-1 text-[9px] text-dash-yellow">
             {workstream.driftReasons.slice(0, 2).join(" \u2022 ")}
           </div>

@@ -16,7 +16,7 @@ import { computeTurnCost } from "./pricing.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
   ParsedSession, SessionInfo, Agent, AgentStatus,
-  Workstream, DashboardState, DashboardSummary, Operator,
+  Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
   SessionPlan, PlanStatus, PlanTask, TokenUsage, DraftingActivity, IntentTaskView,
 } from "../types/index.js";
 
@@ -1084,6 +1084,19 @@ export function buildDashboardState(): DashboardState {
     const risk = computeWorkstreamRisk(orderedActiveProjectAgents);
     const intent = buildIntentInsights(sessions, allProjectAgents, plans, hasCollision);
 
+    const agentTypes = new Set(allProjectAgents.map(a => a.agentType));
+    const mode: WorkstreamMode = agentTypes.has("codex") && agentTypes.has("claude") ? "mixed"
+      : agentTypes.has("codex") ? "codex" : "claude";
+
+    let totalCommands = 0;
+    let totalPatches = 0;
+    for (const s of sessions) {
+      for (const t of s.turns) {
+        totalCommands += t.commands.length;
+        totalPatches += t.filesChanged.length;
+      }
+    }
+
     workstreams.push({
       projectId,
       projectPath,
@@ -1105,6 +1118,9 @@ export function buildDashboardState(): DashboardState {
       lastIntentUpdateAt: intent.lastIntentUpdateAt,
       intentLanes: intent.intentLanes,
       driftReasons: intent.driftReasons,
+      mode,
+      totalCommands,
+      totalPatches,
     });
   }
 

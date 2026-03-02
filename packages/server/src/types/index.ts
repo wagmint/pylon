@@ -3,7 +3,7 @@ export type {
   IntentEvidence, IntentTaskView, IntentLanes,
   OperatorStatus, Operator,
   PlanStatus, PlanTask, DraftingActivity, SessionPlan,
-  AgentStatus, Agent, Workstream, CollisionSeverity, Collision,
+  AgentStatus, Agent, WorkstreamMode, Workstream, CollisionSeverity, Collision,
   FeedEventType, FeedEvent, DashboardSummary, DashboardState,
 } from "./dashboard.js";
 
@@ -308,6 +308,7 @@ export interface TurnNode {
   /** Git commit info */
   hasCommit: boolean;
   commitMessage: string | null;
+  commitSha: string | null;
 
   /** Bash commands run */
   commands: string[];

@@ -206,6 +206,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     try {
       const body = await c.req.json<{
         session_id?: string;
+        transcript_path?: string;
         tool_name?: string;
         tool_input?: Record<string, unknown>;
       }>();
@@ -213,11 +214,20 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       if (!sessionId) {
         return c.json({ error: "Missing session_id" }, 400);
       }
+      // Snapshot JSONL file size so we can detect when the user actually
+      // responds (file grows) vs. Claude Code's own post-hook writes.
+      let snapshotSize = 0;
+      if (body.transcript_path) {
+        try {
+          snapshotSize = fs.statSync(body.transcript_path).size;
+        } catch { /* file not found — fall back to 0 */ }
+      }
       blockedSessions.set(sessionId, {
         sessionId,
         toolName: body.tool_name ?? "unknown",
         toolInput: body.tool_input ?? {},
         blockedAt: Date.now(),
+        snapshotSize,
       });
       return c.json({ ok: true });
     } catch {

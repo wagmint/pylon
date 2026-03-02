@@ -87,6 +87,8 @@ export function transformToOperatorState(
       message: ev.message,
       operatorId: ev.operatorId,
       ...(ev.collisionId ? { collisionId: ev.collisionId } : {}),
+      ...(ev.commitSha ? { commitSha: ev.commitSha } : {}),
+      ...(ev.commitFiles ? { commitFiles: ev.commitFiles } : {}),
     }));
 
   // Find the self operator

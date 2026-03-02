@@ -116,6 +116,8 @@ export type AgentStatus = "idle" | "busy" | "warning" | "conflict" | "blocked";
 
 export type AgentType = "claude" | "codex";
 
+export type WorkstreamMode = "claude" | "codex" | "mixed";
+
 export interface Agent {
   /** Session ID */
   sessionId: string;
@@ -182,6 +184,12 @@ export interface Workstream {
   intentLanes: IntentLanes;
   /** Human-readable drift indicators */
   driftReasons: string[];
+  /** Agent composition: claude-only, codex-only, or mixed */
+  mode: WorkstreamMode;
+  /** Total bash/shell commands across all agent turns */
+  totalCommands: number;
+  /** Total file patches (writes/edits) across all agent turns */
+  totalPatches: number;
 }
 
 export type CollisionSeverity = "warning" | "critical";
@@ -212,6 +220,7 @@ export interface Collision {
 export type FeedEventType =
   | "collision"
   | "collision_resolved"
+  | "commit"
   | "completion"
   | "error"
   | "compaction"
@@ -243,6 +252,10 @@ export interface FeedEvent {
   operatorId: string;
   /** Optional: collision ID if type is collision */
   collisionId?: string;
+  /** Optional: commit SHA if type is commit */
+  commitSha?: string;
+  /** Optional: files changed in commit */
+  commitFiles?: string[];
 }
 
 export interface DashboardSummary {

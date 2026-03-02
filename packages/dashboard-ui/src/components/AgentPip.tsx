@@ -34,11 +34,11 @@ const statusConfig: Record<AgentStatus, {
     icon: "\u26A0",
   },
   conflict: {
-    bg: "bg-dash-red-dim",
-    border: "border-dash-red",
-    text: "text-dash-red",
+    bg: "bg-dash-yellow-dim",
+    border: "border-dash-yellow",
+    text: "text-dash-yellow",
     icon: "!",
-    animation: "animate-conflict-flash",
+    animation: "animate-dash-pulse",
   },
   blocked: {
     bg: "bg-dash-blue-dim",

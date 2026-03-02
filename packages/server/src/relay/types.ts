@@ -122,6 +122,7 @@ export interface RelayCollision {
 export type RelayFeedEventType =
   | "collision"
   | "collision_resolved"
+  | "commit"
   | "completion"
   | "error"
   | "compaction"
@@ -144,6 +145,8 @@ export interface RelayFeedEvent {
   message: string;
   operatorId: string;
   collisionId?: string;
+  commitSha?: string;
+  commitFiles?: string[];
 }
 
 export interface OperatorState {

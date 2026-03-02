@@ -108,6 +108,8 @@ export type AgentStatus = "idle" | "busy" | "warning" | "conflict" | "blocked";
 
 export type AgentType = "claude" | "codex";
 
+export type WorkstreamMode = "claude" | "codex" | "mixed";
+
 export interface Agent {
   sessionId: string;
   label: string;
@@ -143,6 +145,9 @@ export interface Workstream {
   lastIntentUpdateAt: string | null;
   intentLanes: IntentLanes;
   driftReasons: string[];
+  mode: WorkstreamMode;
+  totalCommands: number;
+  totalPatches: number;
 }
 
 export type CollisionSeverity = "warning" | "critical";
@@ -165,6 +170,7 @@ export interface Collision {
 export type FeedEventType =
   | "collision"
   | "collision_resolved"
+  | "commit"
   | "completion"
   | "error"
   | "compaction"

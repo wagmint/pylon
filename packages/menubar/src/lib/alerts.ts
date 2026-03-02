@@ -21,7 +21,7 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
     const agentNames = collision.agents.map((a) => a.label).join(", ");
     alerts.push({
       id: `collision-${collision.id}`,
-      severity: "red",
+      severity: "yellow",
       title: "File collision",
       detail: `${collision.filePath} — ${agentNames}`,
       timestamp: collision.detectedAt,
@@ -123,9 +123,9 @@ export function worstSeverity(
   state: DashboardState,
 ): TraySeverity {
   const active = state.agents.filter((a) => a.isActive);
-  if (active.some((a) => a.status === "conflict") || alerts.some((a) => a.severity === "red")) return "red";
+  if (alerts.some((a) => a.severity === "red")) return "red";
   if (active.some((a) => a.status === "blocked") || alerts.some((a) => a.severity === "blue")) return "blue";
-  if (active.some((a) => a.status === "warning") || alerts.some((a) => a.severity === "yellow")) return "yellow";
+  if (active.some((a) => a.status === "conflict") || active.some((a) => a.status === "warning") || alerts.some((a) => a.severity === "yellow")) return "yellow";
   if (active.some((a) => a.status === "busy")) return "green";
   return "grey";
 }

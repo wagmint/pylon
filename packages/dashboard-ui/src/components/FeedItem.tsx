@@ -16,13 +16,17 @@ const typeConfig: Record<
 > = {
   collision: {
     icon: "\u26A1",
-    iconClass: "bg-dash-red-dim text-dash-red",
-    rowClass: "bg-dash-red-dim border-l-2 border-l-dash-red",
+    iconClass: "bg-dash-yellow-dim text-dash-yellow",
+    rowClass: "bg-dash-yellow-dim border-l-2 border-l-dash-yellow",
   },
   collision_resolved: {
     icon: "\u2713",
     iconClass: "bg-dash-green-dim text-dash-green",
     rowClass: "border-l-2 border-l-dash-green",
+  },
+  commit: {
+    icon: "\u2192",
+    iconClass: "bg-dash-green-dim text-dash-green",
   },
   error: {
     icon: "\u2716",

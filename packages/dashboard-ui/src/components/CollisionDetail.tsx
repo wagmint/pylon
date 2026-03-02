@@ -24,12 +24,12 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="flex items-center justify-between px-3.5 py-2.5 bg-dash-red-dim border-b border-dash-red">
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-dash-yellow-dim border-b border-dash-yellow">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 bg-dash-red text-dash-bg rounded flex items-center justify-center font-bold text-xs">
+          <div className="w-5 h-5 bg-dash-yellow text-dash-bg rounded flex items-center justify-center font-bold text-xs">
             {"\u26A1"}
           </div>
-          <span className="font-display font-bold text-xs text-dash-red">
+          <span className="font-display font-bold text-xs text-dash-yellow">
             Collision: {fileName}
           </span>
         </div>
@@ -37,7 +37,7 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
           <span
             className={`text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${
               collision.severity === "critical"
-                ? "bg-dash-red-dim text-dash-red"
+                ? "bg-dash-yellow-dim text-dash-yellow"
                 : "bg-dash-yellow-dim text-dash-yellow"
             }`}
           >
@@ -68,7 +68,7 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
             operatorId={agentA.operatorId}
           />
         )}
-        <div className="flex items-center justify-center text-dash-red font-bold text-sm">
+        <div className="flex items-center justify-center text-dash-yellow font-bold text-sm">
           VS
         </div>
         {agentB && (

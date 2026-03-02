@@ -72,7 +72,7 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
         )}
         {summary.criticalCollisions > 0 && (
           <StatusItem
-            color="red"
+            color="yellow"
             text={`${summary.criticalCollisions} critical`}
           />
         )}

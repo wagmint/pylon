@@ -140,6 +140,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
   const commands: string[] = [];
   let hasCommit = false;
   let commitMessage: string | null = null;
+  let commitSha: string | null = null;
   let errorCount = 0;
 
   const toolCounts: Record<string, number> = {};
@@ -260,6 +261,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     commands,
     hasCommit,
     commitMessage,
+    commitSha,
     hasError: errorCount > 0,
     errorCount,
     hasCompaction,

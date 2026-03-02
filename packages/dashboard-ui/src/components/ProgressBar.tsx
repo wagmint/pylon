@@ -55,7 +55,7 @@ export function ProgressBar({ workstream }: ProgressBarProps) {
           </span>
         )}
         {workstream.hasCollision && (
-          <span className="text-dash-red"> · collision</span>
+          <span className="text-dash-yellow"> · collision</span>
         )}
       </div>
     </div>

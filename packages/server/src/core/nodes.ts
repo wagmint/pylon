@@ -63,6 +63,8 @@ function buildSingleTurn(events: SessionEvent[], index: number): TurnNode | null
   const escalationQuestions: string[] = [];
   let hasCommit = false;
   let commitMessage: string | null = null;
+  let commitSha: string | null = null;
+  const gitCommitCallIds = new Set<string>();
   let errorCount = 0;
   let turnHasCompaction = false;
   let compactionText: string | null = null;
@@ -102,6 +104,11 @@ function buildSingleTurn(events: SessionEvent[], index: number): TurnNode | null
             toolId: result.tool_use_id,
             error: extractErrorSummary(result.content),
           });
+        }
+        // Extract commit SHA from git commit tool results
+        if (gitCommitCallIds.has(result.tool_use_id)) {
+          const shaMatch = result.content.match(/\[[\w\-\/]+\s+([a-f0-9]{7,})\]/);
+          if (shaMatch) commitSha = shaMatch[1];
         }
         // Extract TaskCreate ID from "Task #N created successfully"
         const createMatch = result.content.match(/Task #(\d+) created successfully/);
@@ -173,6 +180,7 @@ function buildSingleTurn(events: SessionEvent[], index: number): TurnNode | null
             hasCommit = true;
             commitMessage = extractCommitMessage(cmd);
             if (commitMessage) commitMessages.push(commitMessage);
+            gitCommitCallIds.add(call.id);
           }
         }
       }
@@ -276,6 +284,7 @@ function buildSingleTurn(events: SessionEvent[], index: number): TurnNode | null
     commands,
     hasCommit,
     commitMessage,
+    commitSha,
     hasError: errorCount > 0,
     errorCount,
     hasCompaction: turnHasCompaction,

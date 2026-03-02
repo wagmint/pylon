@@ -13,7 +13,7 @@ export function DeviationItem({ collision }: DeviationItemProps) {
   const { getOperator, isMultiOperator } = useOperators();
 
   const typeConfig = collision.severity === "critical"
-    ? { label: "COLLISION", className: "bg-dash-red-dim text-dash-red" }
+    ? { label: "COLLISION", className: "bg-dash-yellow-dim text-dash-yellow" }
     : { label: "OVERLAP", className: "bg-dash-yellow-dim text-dash-yellow" };
 
   return (
