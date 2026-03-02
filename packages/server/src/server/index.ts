@@ -316,9 +316,22 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       if (!sessionId) {
         return c.json({ error: "Missing session_id" }, 400);
       }
+      const activeBlock = blockedSessions.get(sessionId);
+      if (!activeBlock) {
+        return c.json({ ok: true, skipped: "not_blocked" });
+      }
       // Ignore stale unblocked callbacks while a newer permission request is pending.
       if (hasPendingDecision(sessionId)) {
         return c.json({ ok: true, skipped: "pending_decision" });
+      }
+      const hookToolName = pickString(body, "tool_name", "toolName", "tool")
+        ?? pickString(body, "hook_event_name", "hookEventName");
+      if (
+        hookToolName
+        && activeBlock.toolName !== "unknown"
+        && hookToolName !== activeBlock.toolName
+      ) {
+        return c.json({ ok: true, skipped: "tool_mismatch" });
       }
       clearBlockedSession(sessionId);
       return c.json({ ok: true });

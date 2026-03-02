@@ -150,13 +150,12 @@ function hasUnblockEvidence(transcriptPath: string, snapshotSize: number): boole
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line) as unknown;
-        // Any clear post-block activity means the permission gate is no longer pending:
-        // user follow-up, assistant response/tool use, or tool result/rejection output.
+        // Clear only on explicit unblock evidence from the transcript:
+        // user follow-up or tool result/rejection output.
+        // (assistant/tool_use lines can appear while still awaiting approval)
         if (
           lineContainsToolResult(parsed)
           || lineContainsUserMessage(parsed)
-          || lineContainsAssistantMessage(parsed)
-          || lineContainsToolUse(parsed)
         ) {
           return true;
         }
@@ -184,19 +183,6 @@ function lineContainsUserMessage(raw: unknown): boolean {
   return false;
 }
 
-function lineContainsAssistantMessage(raw: unknown): boolean {
-  if (!raw || typeof raw !== "object") return false;
-  const obj = raw as Record<string, unknown>;
-
-  if (obj.role === "assistant") return true;
-  if (obj.message && typeof obj.message === "object") {
-    const msg = obj.message as Record<string, unknown>;
-    if (msg.role === "assistant") return true;
-  }
-
-  return false;
-}
-
 function lineContainsToolResult(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") return false;
   const obj = raw as Record<string, unknown>;
@@ -211,23 +197,6 @@ function lineContainsToolResult(raw: unknown): boolean {
     !!block
     && typeof block === "object"
     && (block as Record<string, unknown>).type === "tool_result"
-  ));
-}
-
-function lineContainsToolUse(raw: unknown): boolean {
-  if (!raw || typeof raw !== "object") return false;
-  const obj = raw as Record<string, unknown>;
-
-  const message = obj.message && typeof obj.message === "object"
-    ? (obj.message as Record<string, unknown>)
-    : obj;
-  const content = message.content;
-  if (!Array.isArray(content)) return false;
-
-  return content.some((block) => (
-    !!block
-    && typeof block === "object"
-    && (block as Record<string, unknown>).type === "tool_use"
   ));
 }
 

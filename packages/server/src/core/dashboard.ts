@@ -601,7 +601,7 @@ function buildIntentInsights(
   sessions: ParsedSession[],
   allProjectAgents: Agent[],
   plans: SessionPlan[],
-  hasCollision: boolean,
+  conflictSessionIds: Set<string>,
 ): IntentInsights {
   const agentBySession = new Map(allProjectAgents.map(a => [a.sessionId, a]));
   const agentByLabel = new Map(allProjectAgents.map(a => [a.label, a]));
@@ -649,7 +649,10 @@ function buildIntentInsights(
       if (task.status === "completed") state = "completed";
       else if (task.status === "in_progress") state = "in_progress";
       else state = "pending";
-      if (hasCollision && state === "in_progress") state = "blocked";
+      // Only mark a task blocked when its owning agent is in an active file collision.
+      if (state === "in_progress" && ownerSessionId && conflictSessionIds.has(ownerSessionId)) {
+        state = "blocked";
+      }
 
       plannedTasks.push({
         id: `planned-${ownerSessionId ?? plan.agentLabel}-${task.id || i}`,
@@ -949,6 +952,7 @@ export function buildDashboardState(): DashboardState {
     const label = labelMap.get(parsed.session.id) ?? parsed.session.id.slice(0, 8);
     const isActive = activeSessionIds.has(parsed.session.id);
     const status = determineAgentStatus(parsed, isActive, collisionFileSet);
+    const isCodexAgent = codexSessionIds.has(parsed.session.id);
 
     const lastTurn = parsed.turns[parsed.turns.length - 1];
     const currentTask = lastTurn?.summary ?? "idle";
@@ -975,7 +979,7 @@ export function buildDashboardState(): DashboardState {
     agents.push({
       sessionId: parsed.session.id,
       label,
-      agentType: codexSessionIds.has(parsed.session.id) ? "codex" : "claude",
+      agentType: isCodexAgent ? "codex" : "claude",
       status,
       currentTask,
       filesChanged: parsed.stats.filesChanged,
@@ -1073,13 +1077,36 @@ export function buildDashboardState(): DashboardState {
     }
 
     const hasCollision = orderedActiveProjectAgents.some(a => a.status === "conflict");
+    const conflictSessionIds = new Set(
+      orderedActiveProjectAgents
+        .filter(a => a.status === "conflict")
+        .map(a => a.sessionId)
+    );
 
-    const plans = allProjectAgents.flatMap(a => a.plans).filter(p =>
+    const isRenderablePlan = (p: SessionPlan): boolean => (
       p.status !== "none"
       && p.status !== "rejected"
       && !(p.status === "drafting" && !p.markdown && !p.draftingActivity)
     );
-    const planTasks = plans.flatMap(p => p.tasks);
+    const agentByLabel = new Map(allProjectAgents.map(a => [a.label, a]));
+
+    // Preserve plan history for the Plans panel/workstream card.
+    const plans = allProjectAgents
+      .flatMap(a => a.plans)
+      .filter((p) => {
+        if (!isRenderablePlan(p)) return false;
+        const owner = agentByLabel.get(p.agentLabel);
+        // Plans panel should only show Claude plans (keep codex plans for intent math below).
+        if (owner?.agentType === "codex") return false;
+        // Ignore stale drafting plans from inactive sessions (e.g. user esc/cancel then exited).
+        if (p.status === "drafting" && owner && !owner.isActive) return false;
+        return true;
+      })
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    // Use only active-agent plans for live intent/progress calculations.
+    const livePlans = orderedActiveProjectAgents.flatMap(a => a.plans).filter(isRenderablePlan);
+    const planTasks = livePlans.flatMap(p => p.tasks);
 
     let completionPct: number;
     if (planTasks.length > 0) {
@@ -1093,7 +1120,7 @@ export function buildDashboardState(): DashboardState {
     const projectId = project?.encodedName ?? projectPath.replace(/\//g, "-");
 
     const risk = computeWorkstreamRisk(orderedActiveProjectAgents);
-    const intent = buildIntentInsights(sessions, allProjectAgents, plans, hasCollision);
+    const intent = buildIntentInsights(sessions, allProjectAgents, livePlans, conflictSessionIds);
 
     const agentTypes = new Set(allProjectAgents.map(a => a.agentType));
     const mode: WorkstreamMode = agentTypes.has("codex") && agentTypes.has("claude") ? "mixed"

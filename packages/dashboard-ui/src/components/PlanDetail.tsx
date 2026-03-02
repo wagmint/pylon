@@ -37,12 +37,9 @@ function collectPlans(workstreams: Workstream[]): PlanEntry[] {
   for (const ws of workstreams) {
     for (const plan of ws.plans) {
       if (plan.status === "none" || plan.status === "rejected") continue;
-      // Skip task-only plans with no markdown — these are inferred tasks
-      // (codex or Claude sessions using TaskCreate without plan mode)
-      // already surfaced through intent lanes.
-      if (!plan.markdown && !plan.draftingActivity) continue;
       const done = plan.tasks.filter((t) => t.status === "completed").length;
       const matchingAgent = ws.agents.find((a) => a.label === plan.agentLabel);
+      if (matchingAgent?.agentType === "codex") continue;
       entries.push({
         workstreamName: ws.name,
         plan,
