@@ -7,7 +7,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
 import { buildDashboardState } from "../core/dashboard.js";
-import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, resolveDecision, type BlockedInfo } from "../core/blocked.js";
+import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -57,8 +57,9 @@ function shouldTickerRun() {
 function startTicker() {
   if (tickerInterval) return;
   tickerInterval = setInterval(() => {
-    clearStaleBlocked();
-    const rawState = buildDashboardState();
+    const activeSessions = getActiveSessions();
+    clearStaleBlocked(activeSessions);
+    const rawState = buildDashboardState(activeSessions);
 
     // Relay (does its own diff check per connection)
     relayManager.onStateUpdate(rawState);
@@ -231,7 +232,9 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
           snapshotSize = fs.statSync(transcriptPath).size;
         } catch { /* file not found — fall back to 0 */ }
       }
-      blockedSessions.set(sessionId, {
+      const requestId = crypto.randomUUID();
+      blockedSessions.set(requestId, {
+        requestId,
         sessionId,
         toolName,
         toolInput,
@@ -245,7 +248,8 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   });
 
   /** Long-poll permission gate — called by PermissionRequest hook script.
-   *  Holds the HTTP connection until the user approves/denies from UI, or timeout. */
+   *  Holds the HTTP connection until the user approves/denies from UI, or timeout.
+   *  Each parallel tool call gets its own requestId so multiple can coexist. */
   app.post("/api/hooks/permission-gate", async (c) => {
     try {
       const body = await c.req.json<Record<string, unknown>>();
@@ -273,7 +277,11 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
         } catch { /* fall back to 0 */ }
       }
 
-      blockedSessions.set(sessionId, {
+      // Each parallel hook invocation gets its own requestId
+      const { requestId, promise } = createPendingDecision(sessionId);
+
+      blockedSessions.set(requestId, {
+        requestId,
         sessionId,
         toolName,
         toolInput,
@@ -282,12 +290,11 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       });
 
       // Hold connection until UI decision or timeout
-      const decision = await createPendingDecision(sessionId);
+      const decision = await promise;
 
-      // Clean up blocked state when decision arrives (user decided from UI)
-      if (decision === "allow" || decision === "deny") {
-        clearBlockedSession(sessionId);
-      }
+      // Clean up this specific blocked entry (resolveAllDecisions already does this,
+      // but handle the timeout/prompt case too)
+      blockedSessions.delete(requestId);
 
       // "prompt" means timeout/fallback — return empty so script outputs nothing
       // and Claude Code falls through to the local permission dialog
@@ -316,22 +323,12 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       if (!sessionId) {
         return c.json({ error: "Missing session_id" }, 400);
       }
-      const activeBlock = blockedSessions.get(sessionId);
-      if (!activeBlock) {
+      if (!hasBlockedSession(sessionId)) {
         return c.json({ ok: true, skipped: "not_blocked" });
       }
-      // Ignore stale unblocked callbacks while a newer permission request is pending.
+      // Ignore stale unblocked callbacks while a permission request is pending.
       if (hasPendingDecision(sessionId)) {
         return c.json({ ok: true, skipped: "pending_decision" });
-      }
-      const hookToolName = pickString(body, "tool_name", "toolName", "tool")
-        ?? pickString(body, "hook_event_name", "hookEventName");
-      if (
-        hookToolName
-        && activeBlock.toolName !== "unknown"
-        && hookToolName !== activeBlock.toolName
-      ) {
-        return c.json({ ok: true, skipped: "tool_mismatch" });
       }
       clearBlockedSession(sessionId);
       return c.json({ ok: true });
@@ -340,7 +337,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     }
   });
 
-  /** UI endpoint to approve/deny a blocked session */
+  /** UI endpoint to approve/deny ALL pending decisions for a session */
   app.post("/api/sessions/:id/decide", async (c) => {
     try {
       const sessionId = c.req.param("id");
@@ -349,11 +346,11 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       if (action !== "approve" && action !== "deny") {
         return c.json({ error: "Invalid action — must be 'approve' or 'deny'" }, 400);
       }
-      const resolved = resolveDecision(sessionId, action === "approve" ? "allow" : "deny");
-      if (!resolved) {
+      const count = resolveAllDecisions(sessionId, action === "approve" ? "allow" : "deny");
+      if (count === 0) {
         return c.json({ error: "No pending decision for this session" }, 404);
       }
-      return c.json({ ok: true });
+      return c.json({ ok: true, resolved: count });
     } catch {
       return c.json({ error: "Invalid JSON" }, 400);
     }

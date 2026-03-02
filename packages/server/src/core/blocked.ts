@@ -2,10 +2,14 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "no
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { getActiveSessions } from "../discovery/sessions.js";
+import type { SessionInfo } from "../types/index.js";
 
 // ─── In-memory blocked session store ────────────────────────────────────────
+// Keyed by requestId (server-generated UUID per hook invocation) so that
+// multiple parallel tool calls within the same session are tracked independently.
 
 export interface BlockedInfo {
+  requestId: string;
   sessionId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
@@ -17,8 +21,10 @@ export interface BlockedInfo {
 export const blockedSessions = new Map<string, BlockedInfo>();
 
 // ─── Pending decision store (for permission-gate long-poll) ─────────────────
+// Also keyed by requestId so each parallel hook invocation gets its own Promise.
 
 export interface PendingDecision {
+  sessionId: string;
   resolve: (decision: "allow" | "deny" | "prompt") => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -27,58 +33,84 @@ export const pendingDecisions = new Map<string, PendingDecision>();
 const GATE_TIMEOUT_MS = 120_000; // 2 minutes
 
 /**
- * Create a pending decision for a session. Returns a promise that resolves
- * when the user approves/denies from the UI, or times out as "prompt".
- * If a previous pending decision exists for this session, it resolves as "prompt".
+ * Create a pending decision for a single permission-gate request.
+ * Returns `{ requestId, promise }` where `promise` resolves when
+ * the user approves/denies from the UI, or times out as "prompt".
+ * Multiple requests for the same session coexist independently.
  */
-export function createPendingDecision(sessionId: string): Promise<"allow" | "deny" | "prompt"> {
-  // If there's already a pending decision, resolve the old one as "prompt"
-  const existing = pendingDecisions.get(sessionId);
-  if (existing) {
-    clearTimeout(existing.timer);
-    existing.resolve("prompt");
-    pendingDecisions.delete(sessionId);
-  }
+export function createPendingDecision(sessionId: string): { requestId: string; promise: Promise<"allow" | "deny" | "prompt"> } {
+  const requestId = crypto.randomUUID();
 
-  return new Promise<"allow" | "deny" | "prompt">((resolve) => {
+  const promise = new Promise<"allow" | "deny" | "prompt">((resolve) => {
     const timer = setTimeout(() => {
-      pendingDecisions.delete(sessionId);
+      pendingDecisions.delete(requestId);
+      blockedSessions.delete(requestId);
       resolve("prompt");
     }, GATE_TIMEOUT_MS);
 
-    pendingDecisions.set(sessionId, { resolve, timer });
+    pendingDecisions.set(requestId, { sessionId, resolve, timer });
   });
+
+  return { requestId, promise };
 }
 
 /**
- * Resolve a pending decision from the UI (approve/deny button click).
- * Returns true if a pending decision was found and resolved.
+ * Resolve ALL pending decisions for a session (approve/deny all).
+ * Called when the user clicks "Approve All" / "Deny All" in the UI.
+ * Returns the number of decisions resolved.
  */
-export function resolveDecision(sessionId: string, decision: "allow" | "deny"): boolean {
-  const pending = pendingDecisions.get(sessionId);
-  if (!pending) return false;
-  clearTimeout(pending.timer);
-  pendingDecisions.delete(sessionId);
-  pending.resolve(decision);
-  return true;
+export function resolveAllDecisions(sessionId: string, decision: "allow" | "deny"): number {
+  let count = 0;
+  for (const [requestId, pending] of pendingDecisions) {
+    if (pending.sessionId !== sessionId) continue;
+    clearTimeout(pending.timer);
+    pendingDecisions.delete(requestId);
+    blockedSessions.delete(requestId);
+    pending.resolve(decision);
+    count++;
+  }
+  return count;
 }
 
-/** Whether a permission-gate decision is currently pending for this session. */
+/** Whether any permission-gate decision is currently pending for this session. */
 export function hasPendingDecision(sessionId: string): boolean {
-  return pendingDecisions.has(sessionId);
+  for (const pending of pendingDecisions.values()) {
+    if (pending.sessionId === sessionId) return true;
+  }
+  return false;
+}
+
+/** Whether any blocked entry exists for this session. */
+export function hasBlockedSession(sessionId: string): boolean {
+  for (const info of blockedSessions.values()) {
+    if (info.sessionId === sessionId) return true;
+  }
+  return false;
+}
+
+/** Get all blocked entries for a session. */
+export function getBlockedForSession(sessionId: string): BlockedInfo[] {
+  const result: BlockedInfo[] = [];
+  for (const info of blockedSessions.values()) {
+    if (info.sessionId === sessionId) result.push(info);
+  }
+  return result;
 }
 
 /**
- * Clear blocked state for a session and release any pending gate wait as "prompt".
+ * Clear ALL blocked state for a session and release any pending gate waits as "prompt".
  * Used when the session resumes through terminal-side approval/interaction.
  */
 export function clearBlockedSession(sessionId: string): void {
-  blockedSessions.delete(sessionId);
-  const pending = pendingDecisions.get(sessionId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pending.resolve("prompt");
-  pendingDecisions.delete(sessionId);
+  for (const [requestId, info] of blockedSessions) {
+    if (info.sessionId === sessionId) blockedSessions.delete(requestId);
+  }
+  for (const [requestId, pending] of pendingDecisions) {
+    if (pending.sessionId !== sessionId) continue;
+    clearTimeout(pending.timer);
+    pending.resolve("prompt");
+    pendingDecisions.delete(requestId);
+  }
 }
 
 /** Max age before a blocked entry is auto-purged (safety net for crashed sessions) */
@@ -89,20 +121,27 @@ const BLOCKED_TTL_MS = 10 * 60 * 1000; // 10 minutes
  * - Clears when appended JSONL data shows unblock evidence (tool_result or user message)
  * - Purges entries for sessions no longer active
  * - Purges entries older than TTL
+ *
+ * @param activeSessions Pre-fetched active sessions from the ticker (avoids redundant pgrep/lsof)
  */
-export function clearStaleBlocked(): void {
+export function clearStaleBlocked(activeSessions?: SessionInfo[]): void {
   if (blockedSessions.size === 0) return;
 
   const now = Date.now();
-  const activeSessions = getActiveSessions();
-  const activeIds = new Set(activeSessions.map(s => s.id));
-  const activeByIdMap = new Map(activeSessions.map(s => [s.id, s]));
+  const sessions = activeSessions ?? getActiveSessions();
+  const activeIds = new Set(sessions.map(s => s.id));
+  const activeByIdMap = new Map(sessions.map(s => [s.id, s]));
 
-  for (const [sessionId, info] of blockedSessions) {
+  // Collect session IDs that should be fully cleared (all-or-nothing per session).
+  const sessionsToClear = new Set<string>();
+
+  for (const [_requestId, info] of blockedSessions) {
+    if (sessionsToClear.has(info.sessionId)) continue; // already marked
+
     let shouldClear = false;
 
     // Purge if session is no longer active
-    if (!activeIds.has(sessionId)) {
+    if (!activeIds.has(info.sessionId)) {
       shouldClear = true;
     }
 
@@ -115,7 +154,7 @@ export function clearStaleBlocked(): void {
     // Plain file growth alone is not reliable: Claude Code may append
     // internal/status lines while still waiting for user input.
     if (!shouldClear) {
-      const session = activeByIdMap.get(sessionId);
+      const session = activeByIdMap.get(info.sessionId);
       if (session) {
         try {
           const currentSize = statSync(session.path).size;
@@ -134,8 +173,12 @@ export function clearStaleBlocked(): void {
     }
 
     if (shouldClear) {
-      clearBlockedSession(sessionId);
+      sessionsToClear.add(info.sessionId);
     }
+  }
+
+  for (const sessionId of sessionsToClear) {
+    clearBlockedSession(sessionId);
   }
 }
 

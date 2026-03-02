@@ -67,7 +67,7 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
       )}
       <div className="mt-1.5 space-y-0.5">
         {workstream.agents.map((agent) =>
-          agent.status === "blocked" && agent.blockedOn?.description ? (
+          agent.status === "blocked" && agent.blockedOn && agent.blockedOn.length > 0 ? (
             <div
               key={agent.sessionId}
               className="rounded border border-dash-blue/20 bg-dash-blue/5 px-2 py-1.5 -mx-0.5 space-y-1"
@@ -84,19 +84,23 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
                 </span>
                 <OperatorTag operatorId={agent.operatorId} />
               </div>
-              <div className="text-[9px] text-dash-blue truncate">{agent.blockedOn.description}</div>
-              {agent.blockedOn.detail && (
-                <div className="text-[8px] text-dash-text-dim font-mono truncate" title={agent.blockedOn.detail}>
-                  {agent.blockedOn.detail}
+              {agent.blockedOn.map((item, i) => (
+                <div key={item.requestId ?? i}>
+                  <div className="text-[9px] text-dash-blue truncate">{item.description}</div>
+                  {item.detail && (
+                    <div className="text-[8px] text-dash-text-dim font-mono truncate" title={item.detail}>
+                      {item.detail}
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
               {onDecide && (
                 <div className="flex items-center gap-1.5 pt-0.5">
                   <button
                     onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "approve"); }}
                     className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors"
                   >
-                    Approve
+                    {agent.blockedOn.length > 1 ? `Approve All (${agent.blockedOn.length})` : "Approve"}
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "deny"); }}

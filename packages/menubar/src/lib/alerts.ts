@@ -31,13 +31,20 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
   // Blue: agents waiting on user permission approval
   for (const agent of state.agents) {
     if (agent.isActive && agent.status === "blocked") {
+      const items = agent.blockedOn ?? [];
+      let detail: string;
+      if (items.length === 0) {
+        detail = `${agent.label} is waiting for you`;
+      } else if (items.length === 1) {
+        detail = `${agent.label}: ${items[0].description}`;
+      } else {
+        detail = `${agent.label}: ${items.length} tools waiting for approval`;
+      }
       alerts.push({
         id: `blocked-${agent.sessionId}`,
         severity: "blue",
         title: "Needs approval",
-        detail: agent.blockedOn?.description
-          ? `${agent.label}: ${agent.blockedOn.description}`
-          : `${agent.label} is waiting for you`,
+        detail,
         timestamp: new Date().toISOString(),
       });
     }
@@ -130,7 +137,7 @@ export function worstSeverity(
 
   if (alerts.some((a) => a.severity === "red")) return "red";
   if (active.some((a) => a.status === "blocked") || alerts.some((a) => a.severity === "blue")) return "blue";
-  if (hasBusy) return "green";
   if (hasWarning || alerts.some((a) => a.severity === "yellow")) return "yellow";
+  if (hasBusy) return "green";
   return "grey";
 }

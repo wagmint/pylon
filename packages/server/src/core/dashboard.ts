@@ -9,7 +9,7 @@ import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
 import { detectCollisions } from "./collisions.js";
 import { buildFeed } from "./feed.js";
-import { blockedSessions, describeBlockedTool, extractToolDetail } from "./blocked.js";
+import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import { computeTurnCost } from "./pricing.js";
@@ -813,7 +813,7 @@ function buildIntentInsights(
 /** Grace period: keep recently-dead sessions visible so feed/plans persist across context clears */
 const RECENT_GRACE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-export function buildDashboardState(): DashboardState {
+export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): DashboardState {
   // 0. Load operator config
   const config = loadOperatorConfig();
   const selfName = getSelfName(config);
@@ -835,8 +835,8 @@ export function buildDashboardState(): DashboardState {
   // Session → operator mapping
   const sessionOperatorMap = new Map<string, string>();
 
-  // 1. Get all active sessions (self)
-  const activeSessions = getActiveSessions();
+  // 1. Get all active sessions (self) — use prefetched if available to avoid redundant pgrep/lsof
+  const activeSessions = prefetchedActiveSessions ?? getActiveSessions();
   const activeSessionIds = new Set(activeSessions.map(s => s.id));
 
   // Tag self sessions
@@ -968,13 +968,11 @@ export function buildDashboardState(): DashboardState {
     const risk = computeAgentRisk(parsed, sessionAcc?.errorHistory, sessionAcc?.totalCost);
 
     const blockedOn = status === "blocked"
-      ? (() => {
-          const info = blockedSessions.get(parsed.session.id);
-          if (!info) return null;
+      ? getBlockedForSession(parsed.session.id).map((info) => {
           const detail = extractToolDetail(info.toolName, info.toolInput);
-          return { toolName: info.toolName, description: describeBlockedTool(info), ...(detail ? { detail } : {}) };
-        })()
-      : null;
+          return { requestId: info.requestId, toolName: info.toolName, description: describeBlockedTool(info), ...(detail ? { detail } : {}) };
+        })
+      : undefined;
 
     agents.push({
       sessionId: parsed.session.id,
@@ -1210,7 +1208,7 @@ export function buildDashboardState(): DashboardState {
 }
 
 /** How long since last file modification before an active session is considered idle */
-const IDLE_THRESHOLD_MS = 30_000; // 30 seconds
+const IDLE_THRESHOLD_MS = 10_000; // 10 seconds
 
 function determineAgentStatus(
   parsed: ParsedSession,
@@ -1218,7 +1216,7 @@ function determineAgentStatus(
   collisionSessionIds: Set<string>
 ): AgentStatus {
   // Blocked: waiting on user permission approval (from CC hook)
-  if (blockedSessions.has(parsed.session.id)) return "blocked";
+  if (hasBlockedSession(parsed.session.id)) return "blocked";
 
   // Conflict: this session has files in a detected collision
   if (collisionSessionIds.has(parsed.session.id)) return "conflict";

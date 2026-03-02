@@ -1,6 +1,6 @@
 import type { ParsedSession, Collision, FeedEvent } from "../types/index.js";
 import { formatIdleDuration } from "./duration.js";
-import { blockedSessions } from "./blocked.js";
+import { blockedSessions, type BlockedInfo } from "./blocked.js";
 
 // ─── In-memory feed state ──────────────────────────────────────────────────
 
@@ -204,27 +204,46 @@ export function buildFeed(
     }
   }
 
-  // 1d. Blocked events — transient, same pattern as stall/idle
+  // 1d. Blocked events — transient, same pattern as stall/idle.
+  //     Group by sessionId so we get one feed event per session even with parallel requests.
   if (activeSessionIds) {
     // Clear stale blocked entries each cycle
     for (const sessionId of activeSessionIds) {
       feedLog.delete(`blocked-${sessionId}`);
     }
-    for (const [sessionId, info] of blockedSessions) {
-      if (!activeSessionIds.has(sessionId)) continue;
+    // Group blocked entries by session
+    const blockedBySession = new Map<string, BlockedInfo[]>();
+    for (const info of blockedSessions.values()) {
+      if (!activeSessionIds.has(info.sessionId)) continue;
+      let arr = blockedBySession.get(info.sessionId);
+      if (!arr) { arr = []; blockedBySession.set(info.sessionId, arr); }
+      arr.push(info);
+    }
+    for (const [sessionId, infos] of blockedBySession) {
       const label = labelMap?.get(sessionId) ?? sessionId.slice(0, 8);
       const session = sessions.find(s => s.session.id === sessionId);
+      const earliest = infos.reduce((min, i) => i.blockedAt < min ? i.blockedAt : min, infos[0].blockedAt);
+      let message: string;
+      if (infos.length === 1) {
+        const info = infos[0];
+        message = info.toolName && info.toolName !== "unknown"
+          ? `Waiting for permission: ${info.toolName}`
+          : "Waiting for user input";
+      } else {
+        const toolNames = [...new Set(infos.map(i => i.toolName).filter(t => t !== "unknown"))];
+        message = toolNames.length > 0
+          ? `Waiting for permission: ${infos.length} tools (${toolNames.join(", ")})`
+          : `Waiting for permission: ${infos.length} tools`;
+      }
       feedLog.set(`blocked-${sessionId}`, {
         id: `blocked-${sessionId}`,
         type: "blocked",
-        timestamp: new Date(info.blockedAt),
+        timestamp: new Date(earliest),
         agentLabel: label,
         sessionId,
         projectPath: session?.session.projectPath ?? "",
         operatorId: opId(sessionId),
-        message: info.toolName && info.toolName !== "unknown"
-          ? `Waiting for permission: ${info.toolName}`
-          : "Waiting for user input",
+        message,
       });
     }
   }

@@ -132,10 +132,21 @@ function AgentRow({
             {note.text}
           </p>
         ))}
-        {agent.status === "blocked" && agent.blockedOn?.detail && (
-          <p className="text-[10px] text-dash-text-dim font-mono truncate mt-0.5">
-            {agent.blockedOn.detail}
-          </p>
+        {agent.status === "blocked" && agent.blockedOn && agent.blockedOn.length > 0 && (
+          <>
+            {agent.blockedOn.slice(0, 3).map((item, i) => (
+              item.detail ? (
+                <p key={item.requestId ?? i} className="text-[10px] text-dash-text-dim font-mono truncate mt-0.5">
+                  {item.detail}
+                </p>
+              ) : null
+            ))}
+            {agent.blockedOn.length > 3 && (
+              <p className="text-[10px] text-dash-text-muted mt-0.5">
+                +{agent.blockedOn.length - 3} more
+              </p>
+            )}
+          </>
         )}
         {agent.status === "blocked" && (
           <div className="flex items-center gap-1.5 mt-1">
@@ -144,7 +155,7 @@ function AgentRow({
               onClick={() => handleDecide("approve")}
               className="text-[10px] font-medium px-2 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors disabled:opacity-50"
             >
-              Approve
+              {agent.blockedOn && agent.blockedOn.length > 1 ? `Approve All (${agent.blockedOn.length})` : "Approve"}
             </button>
             <button
               disabled={deciding}
@@ -167,8 +178,14 @@ const MAX_STATUS_NOTES = 2;
 
 function getStatusNotes(agent: Agent, collisions: Collision[]): Array<{ text: string; className: string }> {
   if (agent.status === "blocked") {
-    const desc = agent.blockedOn?.description ?? "Waiting for your approval";
-    return [{ text: desc, className: "text-dash-blue" }];
+    const items = agent.blockedOn ?? [];
+    if (items.length === 0) {
+      return [{ text: "Waiting for your approval", className: "text-dash-blue" }];
+    }
+    if (items.length === 1) {
+      return [{ text: items[0].description, className: "text-dash-blue" }];
+    }
+    return [{ text: `${items.length} tools waiting for approval`, className: "text-dash-blue" }];
   }
 
   if (agent.status === "conflict") {

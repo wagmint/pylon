@@ -123,7 +123,7 @@ export function findSession(sessionId: string): SessionInfo | null {
  * to prevent flicker during session transitions (e.g., reset context).
  */
 const previousActiveIds = new Set<string>();
-const ACTIVE_GRACE_MS = 30_000; // 30 seconds
+const ACTIVE_GRACE_MS = 5_000; // 5 seconds
 let lastActiveCheck = 0;
 
 export function getActiveSessions(): SessionInfo[] {

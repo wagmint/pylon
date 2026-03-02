@@ -141,8 +141,8 @@ export interface Agent {
   risk: AgentRisk;
   /** Operator this agent belongs to */
   operatorId: string;
-  /** What the agent is blocked on (tool name + description) when status === "blocked" */
-  blockedOn?: { toolName: string; description: string; detail?: string } | null;
+  /** What the agent is blocked on when status === "blocked". Array supports multiple parallel tool calls. */
+  blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
 
 export interface Workstream {
