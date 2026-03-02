@@ -1,6 +1,6 @@
 import type { DashboardState } from "./types";
 
-export type AlertSeverity = "red" | "yellow" | "green";
+export type AlertSeverity = "red" | "blue" | "yellow" | "green";
 
 export interface HexcoreAlert {
   id: string;
@@ -26,6 +26,19 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
       detail: `${collision.filePath} — ${agentNames}`,
       timestamp: collision.detectedAt,
     });
+  }
+
+  // Blue: agents waiting on user permission approval
+  for (const agent of state.agents) {
+    if (agent.isActive && agent.status === "blocked") {
+      alerts.push({
+        id: `blocked-${agent.sessionId}`,
+        severity: "blue",
+        title: "Needs approval",
+        detail: `${agent.label} is waiting for you`,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   // Red/Yellow: spinning signals from agents
@@ -90,8 +103,9 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
   // Sort: red first, then yellow, then green; within same severity, newest first
   const severityOrder: Record<AlertSeverity, number> = {
     red: 0,
-    yellow: 1,
-    green: 2,
+    blue: 1,
+    yellow: 2,
+    green: 3,
   };
   alerts.sort((a, b) => {
     const sevDiff = severityOrder[a.severity] - severityOrder[b.severity];
@@ -110,6 +124,7 @@ export function worstSeverity(
 ): TraySeverity {
   const active = state.agents.filter((a) => a.isActive);
   if (active.some((a) => a.status === "conflict") || alerts.some((a) => a.severity === "red")) return "red";
+  if (active.some((a) => a.status === "blocked") || alerts.some((a) => a.severity === "blue")) return "blue";
   if (active.some((a) => a.status === "warning") || alerts.some((a) => a.severity === "yellow")) return "yellow";
   if (active.some((a) => a.status === "busy")) return "green";
   return "grey";

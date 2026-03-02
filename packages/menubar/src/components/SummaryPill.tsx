@@ -7,6 +7,7 @@ const dotColor: Record<AgentStatus, string> = {
   busy: "bg-dash-green",
   warning: "bg-dash-yellow",
   conflict: "bg-dash-red",
+  blocked: "bg-dash-blue",
 };
 
 const stateLabel: Record<AgentStatus, string> = {
@@ -14,6 +15,7 @@ const stateLabel: Record<AgentStatus, string> = {
   busy: "Running",
   warning: "Warning",
   conflict: "Conflict",
+  blocked: "Waiting",
 };
 
 interface SummaryPillProps {
@@ -45,7 +47,7 @@ export function SummaryPill({ severity, state, connected }: SummaryPillProps) {
           <div key={agent.sessionId} className="flex items-center gap-1.5">
             <div
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor[agent.status]} ${
-                agent.status === "busy" ? "animate-dash-pulse" : ""
+                agent.status === "busy" ? "animate-dash-pulse" : agent.status === "blocked" ? "animate-dash-breathe" : ""
               }`}
             />
             <span className="text-[11px] text-dash-text truncate">{agent.label}</span>

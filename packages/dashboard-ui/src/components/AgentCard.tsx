@@ -27,10 +27,13 @@ export function AgentCard({ workstream, isSelected, onSelect }: AgentCardProps) 
     ? workstream.planTasks.filter(t => t.status === "completed").length
     : 0;
 
+  const hasBlocked = workstream.agents.some(a => a.status === "blocked");
   const hasBusy = workstream.agents.some(a => a.status === "busy");
-  const stripColor = hasBusy
-    ? "border-l-dash-green animate-dash-pulse"
-    : "border-l-dash-green";
+  const stripColor = hasBlocked
+    ? "border-l-dash-blue animate-dash-breathe"
+    : hasBusy
+      ? "border-l-dash-green animate-dash-pulse"
+      : "border-l-dash-green";
 
   return (
     <div

@@ -34,7 +34,7 @@ export interface AgentRisk {
   sessionDurationMs: number;
 }
 
-export type AgentStatus = "idle" | "busy" | "warning" | "conflict";
+export type AgentStatus = "idle" | "busy" | "warning" | "conflict" | "blocked";
 export type AgentType = "claude" | "codex";
 
 export interface Agent {
@@ -80,7 +80,8 @@ export type FeedEventType =
   | "task_completed"
   | "session_ended"
   | "stall"
-  | "idle";
+  | "idle"
+  | "blocked";
 
 export interface FeedEvent {
   id: string;
@@ -103,6 +104,7 @@ export interface DashboardSummary {
   totalCommits: number;
   totalErrors: number;
   agentsAtRisk: number;
+  blockedAgents: number;
   operatorCount: number;
   totalCost: number;
 }

@@ -16,6 +16,12 @@ const severityStyles = {
     dot: "bg-dash-red",
     title: "text-dash-red",
   },
+  blue: {
+    bg: "bg-dash-blue/8",
+    border: "border-dash-blue/20",
+    dot: "bg-dash-blue",
+    title: "text-dash-blue",
+  },
   yellow: {
     bg: "bg-dash-yellow/8",
     border: "border-dash-yellow/20",
@@ -36,7 +42,7 @@ interface AlertListProps {
 
 export function AlertList({ alerts }: AlertListProps) {
   const criticalAlerts = alerts.filter(
-    (a) => a.severity === "red" || a.severity === "yellow",
+    (a) => a.severity === "red" || a.severity === "blue" || a.severity === "yellow",
   );
   const infoAlerts = alerts.filter((a) => a.severity === "green");
 
@@ -60,7 +66,7 @@ export function AlertList({ alerts }: AlertListProps) {
                   <div className="flex items-center gap-2">
                     <div
                       className={`w-1.5 h-1.5 rounded-full ${style.dot} ${
-                        alert.severity === "red" ? "animate-dash-pulse" : ""
+                        alert.severity === "red" ? "animate-dash-pulse" : alert.severity === "blue" ? "animate-dash-breathe" : ""
                       }`}
                     />
                     <span className={`text-xs font-medium ${style.title}`}>

@@ -49,6 +49,10 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.3" },
         },
+        "dash-breathe": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.5" },
+        },
         "flash-in": {
           from: { background: "var(--dash-green-dim)" },
           to: { background: "transparent" },
@@ -58,6 +62,7 @@ export default {
         "fade-in": "fade-in 0.3s ease-out",
         "dash-pulse": "dash-pulse 1.5s infinite",
         "conflict-flash": "conflict-flash 0.8s infinite",
+        "dash-breathe": "dash-breathe 3.5s ease-in-out infinite",
         "flash-in": "flash-in 1.5s ease-out",
       },
     },

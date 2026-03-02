@@ -52,7 +52,7 @@ export interface RelayAgent {
   sessionId: string;
   label: string;
   agentType: "claude" | "codex";
-  status: "idle" | "busy" | "warning" | "conflict";
+  status: "idle" | "busy" | "warning" | "conflict" | "blocked";
   currentTask: string;
   filesChanged: string[];
   projectPath: string;
@@ -131,7 +131,8 @@ export type RelayFeedEventType =
   | "task_completed"
   | "session_ended"
   | "stall"
-  | "idle";
+  | "idle"
+  | "blocked";
 
 export interface RelayFeedEvent {
   id: string;

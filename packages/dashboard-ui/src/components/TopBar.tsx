@@ -76,6 +76,12 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
             text={`${summary.criticalCollisions} critical`}
           />
         )}
+        {summary.blockedAgents > 0 && (
+          <StatusItem
+            color="blue"
+            text={`${summary.blockedAgents} waiting`}
+          />
+        )}
         {summary.agentsAtRisk > 0 && (
           <StatusItem
             color="yellow"
@@ -136,14 +142,19 @@ function RelayIndicator({
   );
 }
 
-function StatusItem({ color, text }: { color: "green" | "yellow" | "red"; text: string }) {
+function StatusItem({ color, text }: { color: "green" | "yellow" | "red" | "blue"; text: string }) {
   const dotColor = {
     green: "bg-dash-green",
     yellow: "bg-dash-yellow",
     red: "bg-dash-red",
+    blue: "bg-dash-blue",
   }[color];
 
-  const pulseClass = color === "red" ? "animate-conflict-flash" : "animate-dash-pulse";
+  const pulseClass = color === "red"
+    ? "animate-conflict-flash"
+    : color === "blue"
+      ? "animate-dash-breathe"
+      : "animate-dash-pulse";
 
   return (
     <div className="flex items-center gap-1.5 text-dash-text-dim text-[11px] font-mono">

@@ -20,6 +20,7 @@ const agentDot: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
   warning: "bg-dash-yellow",
   conflict: "bg-dash-red",
+  blocked: "bg-dash-blue animate-dash-breathe",
 };
 
 const taskStatusIcon: Record<IntentTaskView["state"], { char: string; className: string }> = {

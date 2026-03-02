@@ -40,6 +40,13 @@ const statusConfig: Record<AgentStatus, {
     icon: "!",
     animation: "animate-conflict-flash",
   },
+  blocked: {
+    bg: "bg-dash-blue-dim",
+    border: "border-dash-blue",
+    text: "text-dash-blue",
+    icon: "\u23F8",
+    animation: "animate-dash-breathe",
+  },
 };
 
 export function AgentPip({ status, onClick }: AgentPipProps) {

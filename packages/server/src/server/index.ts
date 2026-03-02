@@ -7,6 +7,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
 import { buildDashboardState } from "../core/dashboard.js";
+import { blockedSessions, clearStaleBlocked, ensureHooks, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { parseConnectLink, exchangeConnectLink } from "../relay/link.js";
 
@@ -55,6 +56,7 @@ function shouldTickerRun() {
 function startTicker() {
   if (tickerInterval) return;
   tickerInterval = setInterval(() => {
+    clearStaleBlocked();
     const rawState = buildDashboardState();
 
     // Relay (does its own diff check per connection)
@@ -197,6 +199,32 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     );
   });
 
+  // ─── Hook Endpoints ──────────────────────────────────────────────────────
+
+  /** Receive blocked notification from Claude Code PermissionRequest hook */
+  app.post("/api/hooks/blocked", async (c) => {
+    try {
+      const body = await c.req.json<{
+        session_id?: string;
+        tool_name?: string;
+        tool_input?: Record<string, unknown>;
+      }>();
+      const sessionId = body.session_id;
+      if (!sessionId) {
+        return c.json({ error: "Missing session_id" }, 400);
+      }
+      blockedSessions.set(sessionId, {
+        sessionId,
+        toolName: body.tool_name ?? "unknown",
+        toolInput: body.tool_input ?? {},
+        blockedAt: Date.now(),
+      });
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+  });
+
   // ─── Relay API Routes ─────────────────────────────────────────────────────
 
   /** List relay targets with live connection status */
@@ -294,6 +322,9 @@ export function startServer(options?: StartServerOptions): ServerType {
       console.log(`Dashboard: http://localhost:${info.port}`);
     }
   });
+
+  // Auto-install Claude Code hooks for blocked detection
+  ensureHooks();
 
   // Start relay manager (connects to configured relay targets)
   relayManager.start();

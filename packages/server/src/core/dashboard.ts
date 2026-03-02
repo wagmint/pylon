@@ -9,6 +9,7 @@ import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
 import { detectCollisions } from "./collisions.js";
 import { buildFeed } from "./feed.js";
+import { blockedSessions } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import { computeTurnCost } from "./pricing.js";
@@ -1134,6 +1135,7 @@ export function buildDashboardState(): DashboardState {
       || a.sessionId.localeCompare(b.sessionId)
     ));
   const agentsAtRisk = activeAgents.filter(a => a.risk.overallRisk !== "nominal").length;
+  const blockedAgentCount = activeAgents.filter(a => a.status === "blocked").length;
   const totalCost = activeAgents.reduce((sum, a) => sum + a.risk.costPerSession, 0);
   const summary: DashboardSummary = {
     totalAgents: activeAgents.length,
@@ -1144,6 +1146,7 @@ export function buildDashboardState(): DashboardState {
     totalCommits: workstreams.reduce((sum, w) => sum + w.commits, 0),
     totalErrors: workstreams.reduce((sum, w) => sum + w.errors, 0),
     agentsAtRisk,
+    blockedAgents: blockedAgentCount,
     operatorCount: operators.length,
     totalCost,
   };
@@ -1159,6 +1162,9 @@ function determineAgentStatus(
   isActive: boolean,
   collisionSessionIds: Set<string>
 ): AgentStatus {
+  // Blocked: waiting on user permission approval (from CC hook)
+  if (blockedSessions.has(parsed.session.id)) return "blocked";
+
   // Conflict: this session has files in a detected collision
   if (collisionSessionIds.has(parsed.session.id)) return "conflict";
 

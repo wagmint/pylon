@@ -4,11 +4,13 @@ const hexColor: Record<TraySeverity, string> = {
   green: "var(--dash-green)",
   yellow: "var(--dash-yellow)",
   red: "var(--dash-red)",
+  blue: "var(--dash-blue)",
   grey: "var(--dash-text-muted)",
 };
 
 const pulseClass: Record<TraySeverity, string> = {
   red: "animate-dash-pulse",
+  blue: "animate-dash-breathe",
   yellow: "",
   green: "",
   grey: "",

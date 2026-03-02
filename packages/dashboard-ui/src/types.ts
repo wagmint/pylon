@@ -104,7 +104,7 @@ export interface SessionPlan {
   draftingActivity: DraftingActivity | null;
 }
 
-export type AgentStatus = "idle" | "busy" | "warning" | "conflict";
+export type AgentStatus = "idle" | "busy" | "warning" | "conflict" | "blocked";
 
 export type AgentType = "claude" | "codex";
 
@@ -174,7 +174,8 @@ export type FeedEventType =
   | "task_completed"
   | "session_ended"
   | "stall"
-  | "idle";
+  | "idle"
+  | "blocked";
 
 export interface FeedEvent {
   id: string;
@@ -197,6 +198,7 @@ export interface DashboardSummary {
   totalCommits: number;
   totalErrors: number;
   agentsAtRisk: number;
+  blockedAgents: number;
   operatorCount: number;
   totalCost: number;
 }

@@ -5,6 +5,7 @@ const statusDot: Record<AgentStatus, string> = {
   busy: "bg-dash-green",
   warning: "bg-dash-yellow",
   conflict: "bg-dash-red",
+  blocked: "bg-dash-blue",
 };
 
 const statusLabel: Record<AgentStatus, string> = {
@@ -12,6 +13,7 @@ const statusLabel: Record<AgentStatus, string> = {
   busy: "Working",
   warning: "Warning",
   conflict: "Conflict",
+  blocked: "Waiting",
 };
 
 function projectName(projectPath: string): string {
@@ -77,7 +79,7 @@ function AgentRow({
     >
       <div
         className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${statusDot[agent.status]} ${
-          agent.status === "busy" ? "animate-dash-pulse" : ""
+          agent.status === "busy" ? "animate-dash-pulse" : agent.status === "blocked" ? "animate-dash-breathe" : ""
         }`}
       />
       <div className="flex-1 min-w-0">
@@ -115,6 +117,11 @@ function AgentRow({
         {agent.status === "conflict" && (
           <p className="text-[10px] text-dash-red truncate mt-0.5">
             File collision detected
+          </p>
+        )}
+        {agent.status === "blocked" && (
+          <p className="text-[10px] text-dash-blue truncate mt-0.5">
+            Waiting for your approval
           </p>
         )}
         <p className="text-[10px] text-dash-text-muted truncate">

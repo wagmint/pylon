@@ -1,5 +1,6 @@
 import type { ParsedSession, Collision, FeedEvent } from "../types/index.js";
 import { formatIdleDuration } from "./duration.js";
+import { blockedSessions } from "./blocked.js";
 
 // ─── In-memory feed state ──────────────────────────────────────────────────
 
@@ -185,6 +186,29 @@ export function buildFeed(
             : `Idle for ${formatIdleDuration(silenceMs)}`,
         });
       }
+    }
+  }
+
+  // 1d. Blocked events — transient, same pattern as stall/idle
+  if (activeSessionIds) {
+    // Clear stale blocked entries each cycle
+    for (const sessionId of activeSessionIds) {
+      feedLog.delete(`blocked-${sessionId}`);
+    }
+    for (const [sessionId, info] of blockedSessions) {
+      if (!activeSessionIds.has(sessionId)) continue;
+      const label = labelMap?.get(sessionId) ?? sessionId.slice(0, 8);
+      const session = sessions.find(s => s.session.id === sessionId);
+      feedLog.set(`blocked-${sessionId}`, {
+        id: `blocked-${sessionId}`,
+        type: "blocked",
+        timestamp: new Date(info.blockedAt),
+        agentLabel: label,
+        sessionId,
+        projectPath: session?.session.projectPath ?? "",
+        operatorId: opId(sessionId),
+        message: `Waiting for permission: ${info.toolName}`,
+      });
     }
   }
 

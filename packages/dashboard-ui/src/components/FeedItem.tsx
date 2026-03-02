@@ -66,6 +66,11 @@ const typeConfig: Record<
     icon: "\u2013",
     iconClass: "bg-dash-border text-dash-text-muted",
   },
+  blocked: {
+    icon: "\u23F8",
+    iconClass: "bg-dash-blue-dim text-dash-blue",
+    rowClass: "bg-dash-blue-dim border-l-2 border-l-dash-blue",
+  },
 };
 
 export function FeedItem({ event, isNew, onClick }: FeedItemProps) {
