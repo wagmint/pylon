@@ -92,9 +92,29 @@ function AlertItem({ alert }: { alert: HexcoreAlert }) {
           </span>
         )}
       </div>
-      <p className="text-[11px] text-dash-text-dim mt-1 pl-3.5 truncate">
-        {alert.detail}
-      </p>
+      {alert.blockedItems && alert.blockedItems.length > 0 ? (
+        <div className="mt-1 pl-3.5 space-y-0.5">
+          {alert.blockedItems.slice(0, 3).map((item, i) => (
+            <div key={i} className="flex items-baseline gap-1.5 min-w-0">
+              <span className="text-[10px] text-dash-text-muted flex-shrink-0">
+                {item.toolName}
+              </span>
+              <span className="text-[11px] text-dash-text-dim font-mono truncate">
+                {item.detail || item.description}
+              </span>
+            </div>
+          ))}
+          {alert.blockedItems.length > 3 && (
+            <span className="text-[10px] text-dash-text-muted">
+              +{alert.blockedItems.length - 3} more
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="text-[11px] text-dash-text-dim mt-1 pl-3.5 truncate">
+          {alert.detail}
+        </p>
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ export interface HexcoreAlert {
   title: string;
   detail: string;
   timestamp: string;
+  blockedItems?: Array<{ toolName: string; description: string; detail?: string }>;
 }
 
 const RECENT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -46,6 +47,9 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
         title: "Needs approval",
         detail,
         timestamp: new Date().toISOString(),
+        blockedItems: items.length > 0
+          ? items.map(i => ({ toolName: i.toolName, description: i.description, detail: i.detail }))
+          : undefined,
       });
     }
   }
