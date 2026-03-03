@@ -243,6 +243,29 @@ function lineContainsToolResult(raw: unknown): boolean {
   ));
 }
 
+// ─── Stopped sessions (instant idle on turn completion) ─────────────────────
+// Maps sessionId → JSONL mtime (ms) when the Stop hook fired.
+// Cleared when mtime changes (session started working again).
+
+export const stoppedSessions = new Map<string, number>();
+
+/** Mark a session as stopped (turn complete, waiting for user). */
+export function markSessionStopped(sessionId: string, mtimeMs: number): void {
+  stoppedSessions.set(sessionId, mtimeMs);
+}
+
+/** Check if a session is stopped AND the transcript hasn't changed since. */
+export function isSessionStopped(sessionId: string, currentMtimeMs: number): boolean {
+  const stoppedMtime = stoppedSessions.get(sessionId);
+  if (stoppedMtime === undefined) return false;
+  // If the file has been modified since the stop signal, session is working again
+  if (currentMtimeMs > stoppedMtime) {
+    stoppedSessions.delete(sessionId);
+    return false;
+  }
+  return true;
+}
+
 // ─── Extract key detail from tool input (command, file path, URL) ────────────
 
 export function extractToolDetail(toolName: string, toolInput: Record<string, unknown>): string | undefined {
@@ -327,6 +350,18 @@ const NOTIFICATION_HOOK = {
   ],
 };
 
+/** Fire-and-forget stop notification (Stop — agent turn complete, waiting for user) */
+const STOP_HOOK = {
+  matcher: ".*",
+  hooks: [
+    {
+      type: "command",
+      command: `curl -s -X POST http://localhost:7433/api/hooks/stopped -H 'Content-Type: application/json' -d @- &>/dev/null`,
+      timeout: 5,
+    },
+  ],
+};
+
 /** Fire-and-forget unblocked notification (PostToolUse) */
 const UNBLOCKED_HOOK = {
   matcher: ".*",
@@ -395,7 +430,7 @@ function hasHexdeckCommand(entry: unknown, marker: string): boolean {
  * - PermissionRequest: permission-gate hook (long-poll for remote approve/deny)
  * - PreToolUse: fire-and-forget notification for AskUserQuestion/ExitPlanMode
  * - PostToolUse: clear blocked state quickly when tool actually runs
- * - Stop: removed (not useful)
+ * - Stop: mark session idle immediately when turn completes
  *
  * Migrates old fire-and-forget PermissionRequest hooks to the new gate hook.
  */
@@ -445,15 +480,15 @@ export function ensureHooks(): void {
       dirty = true;
     }
 
-    // ── Stop: remove hexdeck hooks (not useful) ──
-    if (Array.isArray(hooks["Stop"])) {
-      const stopHooks = hooks["Stop"] as unknown[];
-      for (let i = stopHooks.length - 1; i >= 0; i--) {
-        if (hasHexdeckCommand(stopHooks[i], HOOK_MARKER)) {
-          stopHooks.splice(i, 1);
-          dirty = true;
-        }
-      }
+    // ── Stop: fire-and-forget to mark session idle immediately ──
+    if (!Array.isArray(hooks["Stop"])) {
+      hooks["Stop"] = [];
+    }
+    const stopHooks = hooks["Stop"] as unknown[];
+    const stopInstalled = stopHooks.some((entry) => hasHexdeckCommand(entry, "api/hooks/stopped"));
+    if (!stopInstalled) {
+      stopHooks.push(STOP_HOOK);
+      dirty = true;
     }
 
     // ── PreToolUse: fire-and-forget for interactive tools ──

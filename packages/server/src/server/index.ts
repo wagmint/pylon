@@ -7,7 +7,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
 import { buildDashboardState } from "../core/dashboard.js";
-import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, type BlockedInfo } from "../core/blocked.js";
+import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -331,6 +331,29 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
         return c.json({ ok: true, skipped: "pending_decision" });
       }
       clearBlockedSession(sessionId);
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+  });
+
+  /** Mark session as idle immediately when Claude Code finishes its turn (Stop hook) */
+  app.post("/api/hooks/stopped", async (c) => {
+    try {
+      const body = await c.req.json<Record<string, unknown>>();
+      const sessionId = pickString(body, "session_id", "sessionId")
+        ?? deriveSessionIdFromTranscript(pickString(body, "transcript_path", "transcriptPath"));
+      if (!sessionId) {
+        return c.json({ error: "Missing session_id" }, 400);
+      }
+      const transcriptPath = pickString(body, "transcript_path", "transcriptPath");
+      let mtimeMs = Date.now();
+      if (transcriptPath) {
+        try {
+          mtimeMs = fs.statSync(transcriptPath).mtimeMs;
+        } catch { /* use current time as fallback */ }
+      }
+      markSessionStopped(sessionId, mtimeMs);
       return c.json({ ok: true });
     } catch {
       return c.json({ error: "Invalid JSON" }, 400);

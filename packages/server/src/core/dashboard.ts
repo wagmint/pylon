@@ -9,7 +9,7 @@ import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
 import { detectCollisions } from "./collisions.js";
 import { buildFeed } from "./feed.js";
-import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail } from "./blocked.js";
+import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import { computeTurnCost } from "./pricing.js";
@@ -1208,7 +1208,7 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
 }
 
 /** How long since last file modification before an active session is considered idle */
-const IDLE_THRESHOLD_MS = 30_000; // 30 seconds
+const IDLE_THRESHOLD_MS = 120_000; // 2 minutes (fallback — Stop hook handles the normal case)
 
 function determineAgentStatus(
   parsed: ParsedSession,
@@ -1226,10 +1226,15 @@ function determineAgentStatus(
   const recentErrorCount = recentTurns.filter(t => t.hasError).length;
   if (recentErrorCount >= 2) return "warning";
 
-  // Active process but no recent file writes → idle (waiting for user input)
+  // Active process — determine busy vs idle
   if (isActive) {
-    const mtime = parsed.session.modifiedAt.getTime();
-    return Date.now() - mtime > IDLE_THRESHOLD_MS ? "idle" : "busy";
+    const mtimeMs = parsed.session.modifiedAt.getTime();
+
+    // Instant idle: Stop hook fired and transcript hasn't changed since
+    if (isSessionStopped(parsed.session.id, mtimeMs)) return "idle";
+
+    // Fallback: no recent file writes → idle
+    return Date.now() - mtimeMs > IDLE_THRESHOLD_MS ? "idle" : "busy";
   }
 
   return "idle";
