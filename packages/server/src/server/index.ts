@@ -346,14 +346,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       if (!sessionId) {
         return c.json({ error: "Missing session_id" }, 400);
       }
-      const transcriptPath = pickString(body, "transcript_path", "transcriptPath");
-      let mtimeMs = Date.now();
-      if (transcriptPath) {
-        try {
-          mtimeMs = fs.statSync(transcriptPath).mtimeMs;
-        } catch { /* use current time as fallback */ }
-      }
-      markSessionStopped(sessionId, mtimeMs);
+      markSessionStopped(sessionId);
       return c.json({ ok: true });
     } catch {
       return c.json({ error: "Invalid JSON" }, 400);

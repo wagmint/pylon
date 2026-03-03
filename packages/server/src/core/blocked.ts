@@ -244,22 +244,24 @@ function lineContainsToolResult(raw: unknown): boolean {
 }
 
 // ─── Stopped sessions (instant idle on turn completion) ─────────────────────
-// Maps sessionId → JSONL mtime (ms) when the Stop hook fired.
-// Cleared when mtime changes (session started working again).
+// Maps sessionId → wall-clock timestamp (ms) when the Stop hook fired.
+// Cleared when a new turn starts (file mtime significantly after stop time).
+// Uses a grace period to tolerate post-hook file writes (e.g., /compact rewrites the JSONL).
 
 export const stoppedSessions = new Map<string, number>();
+const STOP_GRACE_MS = 5_000; // 5 seconds — compact/rewrite can touch the file shortly after Stop fires
 
 /** Mark a session as stopped (turn complete, waiting for user). */
-export function markSessionStopped(sessionId: string, mtimeMs: number): void {
-  stoppedSessions.set(sessionId, mtimeMs);
+export function markSessionStopped(sessionId: string): void {
+  stoppedSessions.set(sessionId, Date.now());
 }
 
-/** Check if a session is stopped AND the transcript hasn't changed since. */
+/** Check if a session is stopped AND the transcript hasn't changed meaningfully since. */
 export function isSessionStopped(sessionId: string, currentMtimeMs: number): boolean {
-  const stoppedMtime = stoppedSessions.get(sessionId);
-  if (stoppedMtime === undefined) return false;
-  // If the file has been modified since the stop signal, session is working again
-  if (currentMtimeMs > stoppedMtime) {
+  const stoppedAt = stoppedSessions.get(sessionId);
+  if (stoppedAt === undefined) return false;
+  // If file was modified more than STOP_GRACE_MS after the stop signal, a new turn started
+  if (currentMtimeMs > stoppedAt + STOP_GRACE_MS) {
     stoppedSessions.delete(sessionId);
     return false;
   }
