@@ -41,7 +41,13 @@ Any tool that writes session logs — Claude Code, Codex, or both — streams in
 
 ## Floating widget
 
-Hexdeck runs as a floating hexagon widget on your desktop. It reflects the overall state of your agents at a glance — red for critical issues, blue when an agent needs approval, green when agents are working normally.
+Hexdeck runs as a floating hexagon widget on your desktop. It reflects the overall state of your agents at a glance:
+
+- **Blue** — an agent needs your approval
+- **Green** — an agent is actively working
+- **Grey** — no active agents
+
+Expand the widget to see details, approve or deny tool requests, and open the full dashboard.
 
 <p align="center">
   <img src=".github/assets/widget.png" alt="Hexdeck macOS widget" width="900">
