@@ -5,8 +5,8 @@ import { GlowHex } from "./GlowHex";
 const dotColor: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
   busy: "bg-dash-green",
-  warning: "bg-dash-yellow",
-  conflict: "bg-dash-yellow",
+  warning: "bg-dash-green",
+  conflict: "bg-dash-green",
   blocked: "bg-dash-blue",
 };
 

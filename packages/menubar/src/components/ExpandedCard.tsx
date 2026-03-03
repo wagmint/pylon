@@ -85,7 +85,7 @@ export function ExpandedCard({
             {alerts.length > 0 && agents.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
-            <AgentList agents={agents} />
+            <AgentList agents={agents} collisions={state.collisions} />
           </>
         )}
       </div>

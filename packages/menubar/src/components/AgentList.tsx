@@ -4,8 +4,8 @@ import type { Agent, AgentStatus, Collision } from "../lib/types";
 const statusDot: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
   busy: "bg-dash-green",
-  warning: "bg-dash-yellow",
-  conflict: "bg-dash-yellow",
+  warning: "bg-dash-green",
+  conflict: "bg-dash-green",
   blocked: "bg-dash-blue",
 };
 
@@ -205,8 +205,8 @@ function getStatusNotes(agent: Agent, collisions: Collision[]): Array<{ text: st
     const first = uniqueFiles[0];
     const suffix = uniqueFiles.length > 1 ? ` (+${uniqueFiles.length - 1} more)` : "";
     return [
-      { text: `Collision detected: ${first}${suffix}`, className: "text-dash-yellow" },
-      { text: `${ownCollisions.length} active collision${ownCollisions.length === 1 ? "" : "s"}`, className: "text-dash-yellow" },
+      { text: `Collision detected: ${first}${suffix}`, className: "text-dash-text-dim" },
+      { text: `${ownCollisions.length} active collision${ownCollisions.length === 1 ? "" : "s"}`, className: "text-dash-text-dim" },
     ].slice(0, MAX_STATUS_NOTES);
   }
 
@@ -215,10 +215,10 @@ function getStatusNotes(agent: Agent, collisions: Collision[]): Array<{ text: st
     if (elevatedSignals.length > 0) {
       return elevatedSignals
         .slice(0, MAX_STATUS_NOTES)
-        .map((s) => ({ text: formatSignal(s.pattern, s.detail), className: "text-dash-yellow" }));
+        .map((s) => ({ text: formatSignal(s.pattern, s.detail), className: "text-dash-text-dim" }));
     }
     const recentErrors = agent.risk.errorTrend.slice(-3).filter(Boolean).length;
-    return [{ text: `Errors in recent turns (${recentErrors}/3)`, className: "text-dash-yellow" }];
+    return [{ text: `Errors in recent turns (${recentErrors}/3)`, className: "text-dash-text-dim" }];
   }
 
   return [];

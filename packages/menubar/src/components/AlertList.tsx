@@ -11,23 +11,11 @@ function timeAgo(timestamp: string): string {
 }
 
 const severityStyles = {
-  red: {
-    bg: "bg-dash-red/8",
-    border: "border-dash-red/20",
-    dot: "bg-dash-red",
-    title: "text-dash-red",
-  },
   blue: {
     bg: "bg-dash-blue/8",
     border: "border-dash-blue/20",
     dot: "bg-dash-blue",
     title: "text-dash-blue",
-  },
-  yellow: {
-    bg: "bg-dash-yellow/8",
-    border: "border-dash-yellow/20",
-    dot: "bg-dash-yellow",
-    title: "text-dash-yellow",
   },
   green: {
     bg: "bg-dash-green/8",
@@ -62,7 +50,7 @@ function AlertItem({ alert }: { alert: HexcoreAlert }) {
         <div className="flex items-center gap-2">
           <div
             className={`w-1.5 h-1.5 rounded-full ${style.dot} ${
-              alert.severity === "red" ? "animate-dash-pulse" : alert.severity === "blue" ? "animate-dash-breathe" : ""
+              alert.severity === "blue" ? "animate-dash-breathe" : ""
             }`}
           />
           <span className={`text-xs font-medium ${style.title}`}>
@@ -125,7 +113,7 @@ interface AlertListProps {
 
 export function AlertList({ alerts }: AlertListProps) {
   const criticalAlerts = alerts.filter(
-    (a) => a.severity === "red" || a.severity === "blue" || a.severity === "yellow",
+    (a) => a.severity === "blue",
   );
   const infoAlerts = alerts.filter((a) => a.severity === "green");
 

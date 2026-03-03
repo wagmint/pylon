@@ -2,16 +2,12 @@ import type { TraySeverity } from "../lib/alerts";
 
 const glowColor: Record<TraySeverity, string> = {
   green: "#00e87b",
-  yellow: "#ffc44d",
-  red: "#ff4d6a",
   blue: "#4d9fff",
   grey: "#4a4a5e",
 };
 
 const pulseClass: Record<TraySeverity, string> = {
-  red: "animate-dash-pulse",
   blue: "animate-dash-breathe",
-  yellow: "",
   green: "",
   grey: "",
 };
