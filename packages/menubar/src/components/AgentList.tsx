@@ -39,6 +39,8 @@ export function AgentList({ agents, collisions }: AgentListProps) {
     );
   }
 
+  const firstBlockedId = activeAgents.find((a) => a.status === "blocked")?.sessionId;
+
   return (
     <div className="px-3 py-2">
       {activeAgents.length > 0 && (
@@ -47,7 +49,7 @@ export function AgentList({ agents, collisions }: AgentListProps) {
             Active ({activeAgents.length})
           </span>
           {activeAgents.map((agent) => (
-            <AgentRow key={agent.sessionId} agent={agent} collisions={collisions} />
+            <AgentRow key={agent.sessionId} agent={agent} collisions={collisions} isFirstBlocked={agent.sessionId === firstBlockedId} />
           ))}
         </div>
       )}
@@ -70,9 +72,11 @@ function AgentRow({
   agent,
   collisions,
   dimmed = false,
+  isFirstBlocked = false,
 }: {
   agent: Agent;
   collisions: Collision[];
+  isFirstBlocked?: boolean;
   dimmed?: boolean;
 }) {
   const statusNotes = getStatusNotes(agent, collisions);
@@ -156,6 +160,7 @@ function AgentRow({
               className="text-[10px] font-medium px-2 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors disabled:opacity-50"
             >
               {agent.blockedOn && agent.blockedOn.length > 1 ? `Approve All (${agent.blockedOn.length})` : "Approve"}
+              {isFirstBlocked && <span className="ml-1 opacity-50">↵</span>}
             </button>
             <button
               disabled={deciding}

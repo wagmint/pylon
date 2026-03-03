@@ -76,7 +76,7 @@ function AlertItem({ alert }: { alert: HexcoreAlert }) {
               onClick={() => handleDecide("approve")}
               className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors disabled:opacity-50"
             >
-              Approve
+              Approve <span className="opacity-50">↵</span>
             </button>
             <button
               disabled={deciding}
