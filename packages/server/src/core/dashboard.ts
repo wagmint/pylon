@@ -193,13 +193,19 @@ function buildLabelMap(sessionIds: string[]): Map<string, string> {
     let idx = hashToIndex(id) % AGENT_NAMES.length;
     let name = AGENT_NAMES[idx];
 
-    // Resolve collisions
+    // Resolve collisions — try other names first, then add a small suffix
     let attempt = 0;
     while (usedNames.has(name)) {
       attempt++;
       idx = (idx + 1) % AGENT_NAMES.length;
       if (attempt >= AGENT_NAMES.length) {
-        name = AGENT_NAMES[hashToIndex(id) % AGENT_NAMES.length] + `-${attempt}`;
+        const baseName = AGENT_NAMES[hashToIndex(id) % AGENT_NAMES.length];
+        let suffix = 2;
+        name = `${baseName}-${suffix}`;
+        while (usedNames.has(name)) {
+          suffix++;
+          name = `${baseName}-${suffix}`;
+        }
         break;
       }
       name = AGENT_NAMES[idx];

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { HexcoreAlert } from "../lib/alerts";
+import { DecideButtons } from "./DecideButtons";
 
 function timeAgo(timestamp: string): string {
   const diff = Date.now() - new Date(timestamp).getTime();
@@ -25,24 +26,10 @@ const severityStyles = {
   },
 };
 
-function AlertItem({ alert }: { alert: HexcoreAlert }) {
+function AlertItem({ alert, onDecided }: { alert: HexcoreAlert; onDecided?: (alertId: string) => void }) {
   const style = severityStyles[alert.severity];
   const isBlocked = alert.severity === "blue" && alert.id.startsWith("blocked-");
   const sessionId = isBlocked ? alert.id.slice("blocked-".length) : null;
-  const [deciding, setDeciding] = useState(false);
-
-  async function handleDecide(action: "approve" | "deny") {
-    if (!sessionId) return;
-    setDeciding(true);
-    try {
-      await fetch(`http://localhost:7433/api/sessions/${sessionId}/decide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-    } catch { /* server down */ }
-    setDeciding(false);
-  }
 
   return (
     <div className={`${style.bg} ${style.border} border rounded-lg px-3 py-2`}>
@@ -57,23 +44,14 @@ function AlertItem({ alert }: { alert: HexcoreAlert }) {
             {alert.title}
           </span>
         </div>
-        {isBlocked ? (
-          <div className="flex items-center gap-1">
-            <button
-              disabled={deciding}
-              onClick={() => handleDecide("approve")}
-              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors disabled:opacity-50"
-            >
-              Approve <span className="opacity-50">↵</span>
-            </button>
-            <button
-              disabled={deciding}
-              onClick={() => handleDecide("deny")}
-              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors disabled:opacity-50"
-            >
-              Deny
-            </button>
-          </div>
+        {isBlocked && sessionId ? (
+          <DecideButtons
+            sessionId={sessionId}
+            itemCount={alert.blockedItems?.length}
+            showEnterHint
+            size="xs"
+            onDecided={() => onDecided?.(alert.id)}
+          />
         ) : (
           <span className="text-[10px] text-dash-text-muted">
             {timeAgo(alert.timestamp)}
@@ -112,12 +90,34 @@ interface AlertListProps {
 }
 
 export function AlertList({ alerts }: AlertListProps) {
-  const criticalAlerts = alerts.filter(
+  const holdRef = useRef<Map<string, HexcoreAlert>>(new Map());
+  const [, bump] = useState(0);
+
+  function onAlertDecided(alertId: string) {
+    const alert = alerts.find((a) => a.id === alertId);
+    if (alert) {
+      holdRef.current.set(alertId, alert);
+      setTimeout(() => {
+        holdRef.current.delete(alertId);
+        bump((n) => n + 1);
+      }, 600);
+    }
+  }
+
+  // Merge held alerts so they stay visible during grace period
+  const allAlerts = [...alerts];
+  for (const [id, alert] of holdRef.current) {
+    if (!allAlerts.some((a) => a.id === id)) {
+      allAlerts.push(alert);
+    }
+  }
+
+  const criticalAlerts = allAlerts.filter(
     (a) => a.severity === "blue",
   );
-  const infoAlerts = alerts.filter((a) => a.severity === "green");
+  const infoAlerts = allAlerts.filter((a) => a.severity === "green");
 
-  if (alerts.length === 0) return null;
+  if (allAlerts.length === 0) return null;
 
   return (
     <div className="px-3 py-2">
@@ -127,7 +127,7 @@ export function AlertList({ alerts }: AlertListProps) {
             Alerts
           </span>
           {criticalAlerts.map((alert) => (
-            <AlertItem key={alert.id} alert={alert} />
+            <AlertItem key={alert.id} alert={alert} onDecided={onAlertDecided} />
           ))}
         </div>
       )}

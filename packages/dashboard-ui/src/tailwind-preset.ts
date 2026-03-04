@@ -57,6 +57,10 @@ export default {
           from: { background: "var(--dash-green-dim)" },
           to: { background: "transparent" },
         },
+        "decide-morph": {
+          from: { opacity: "0", transform: "scale(0)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.3s ease-out",
@@ -64,6 +68,7 @@ export default {
         "conflict-flash": "conflict-flash 0.8s infinite",
         "dash-breathe": "dash-breathe 3.5s ease-in-out infinite",
         "flash-in": "flash-in 1.5s ease-out",
+        "decide-morph": "decide-morph 0.2s ease-out",
       },
     },
   },

@@ -39,11 +39,11 @@ export function MenuBarApp({
       if (e.key === "Enter") {
         const blocked = agents.find((a) => a.status === "blocked");
         if (blocked) {
-          fetch(`http://localhost:7433/api/sessions/${blocked.sessionId}/decide`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "approve" }),
-          }).catch(() => {});
+          window.dispatchEvent(
+            new CustomEvent("hexdeck:decide", {
+              detail: { sessionId: blocked.sessionId, action: "approve" },
+            }),
+          );
         }
       }
     };

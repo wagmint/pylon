@@ -1,8 +1,11 @@
 "use client";
 
-import type { Workstream, PlanStatus } from "../types";
+import { useRef, useState } from "react";
+import type { Workstream, PlanStatus, Agent } from "../types";
 import { AgentPip } from "./AgentPip";
+import { ClampedText } from "./ClampedText";
 import { OperatorTag } from "./OperatorTag";
+import { DecideButtons } from "./DecideButtons";
 
 interface AgentCardProps {
   workstream: Workstream;
@@ -18,6 +21,20 @@ const planBadges: Partial<Record<PlanStatus, { label: string; className: string 
 };
 
 export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentCardProps) {
+  const decidedRef = useRef<Map<string, Agent>>(new Map());
+  const [, bump] = useState(0);
+
+  function onAgentDecided(sessionId: string) {
+    const agent = workstream.agents.find((a) => a.sessionId === sessionId);
+    if (agent) {
+      decidedRef.current.set(sessionId, agent);
+      setTimeout(() => {
+        decidedRef.current.delete(sessionId);
+        bump((n) => n + 1);
+      }, 600);
+    }
+  }
+
   const hasActive = workstream.agents.some((a) => a.isActive);
 
   const activePlan = workstream.plans.find(p => p.status !== "none");
@@ -66,8 +83,11 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
         </div>
       )}
       <div className="mt-1.5 space-y-0.5">
-        {workstream.agents.map((agent) =>
-          agent.status === "blocked" && agent.blockedOn && agent.blockedOn.length > 0 ? (
+        {workstream.agents.map((agent) => {
+          const held = decidedRef.current.get(agent.sessionId);
+          const showBlocked = (agent.status === "blocked" && agent.blockedOn && agent.blockedOn.length > 0) || held;
+          const blockedAgent = held && agent.status !== "blocked" ? held : agent;
+          return showBlocked ? (
             <div
               key={agent.sessionId}
               className="rounded border border-dash-blue/20 bg-dash-blue/5 px-2 py-1.5 -mx-0.5 space-y-1"
@@ -84,7 +104,7 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
                 </span>
                 <OperatorTag operatorId={agent.operatorId} />
               </div>
-              {agent.blockedOn.map((item, i) => (
+              {(blockedAgent.blockedOn ?? []).map((item, i) => (
                 <div key={item.requestId ?? i}>
                   <div className="text-[9px] text-dash-blue truncate">{item.description}</div>
                   {item.detail && (
@@ -95,43 +115,42 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
                 </div>
               ))}
               {onDecide && (
-                <div className="flex items-center gap-1.5 pt-0.5">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "approve"); }}
-                    className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors"
-                  >
-                    {agent.blockedOn.length > 1 ? `Approve All (${agent.blockedOn.length})` : "Approve"}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDecide(agent.sessionId, "deny"); }}
-                    className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors"
-                  >
-                    Deny
-                  </button>
+                <div className="pt-0.5">
+                  <DecideButtons
+                    sessionId={agent.sessionId}
+                    itemCount={(blockedAgent.blockedOn ?? []).length}
+                    size="xs"
+                    onDecide={onDecide}
+                    onDecided={() => onAgentDecided(agent.sessionId)}
+                  />
                 </div>
               )}
             </div>
           ) : (
             <div
               key={agent.sessionId}
-              className="flex items-center gap-1.5 rounded px-0.5 -mx-0.5 min-w-0"
+              className="rounded px-0.5 -mx-0.5 min-w-0"
             >
-              <AgentPip status={agent.status} />
-              <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
-              <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
-                agent.agentType === "codex"
-                  ? "text-dash-green border-dash-green/30 bg-dash-green/10"
-                  : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
-              }`}>
-                {agent.agentType === "codex" ? "codex" : "claude"}
-              </span>
-              <OperatorTag operatorId={agent.operatorId} />
-              {agent.currentTask ? (
-                <span className="text-[9px] text-dash-text-dim truncate" title={agent.currentTask}>{agent.currentTask}</span>
-              ) : null}
+              <div className="flex items-center gap-1.5">
+                <AgentPip status={agent.status} />
+                <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
+                <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
+                  agent.agentType === "codex"
+                    ? "text-dash-green border-dash-green/30 bg-dash-green/10"
+                    : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
+                }`}>
+                  {agent.agentType === "codex" ? "codex" : "claude"}
+                </span>
+                <OperatorTag operatorId={agent.operatorId} />
+              </div>
+              {agent.currentTask && (
+                <div className="mt-0.5 pl-5">
+                  <ClampedText text={agent.currentTask} lines={2} className="text-[9px] text-dash-text-dim" />
+                </div>
+              )}
             </div>
-          )
-        )}
+          );
+        })}
       </div>
     </div>
   );

@@ -38,6 +38,7 @@ export default {
         "tooltip-in": "tooltip-in 0.3s ease-out",
         "slide-in-right": "slide-in-right 0.25s ease-out",
         "slide-in-left": "slide-in-left 0.25s ease-out",
+        "decide-morph": "decide-morph 0.2s ease-out",
       },
       keyframes: {
         "fade-in": {
@@ -63,6 +64,10 @@ export default {
         "slide-in-left": {
           from: { opacity: "0", transform: "translateX(-24px)" },
           to: { opacity: "1", transform: "translateX(0)" },
+        },
+        "decide-morph": {
+          from: { opacity: "0", transform: "scale(0)" },
+          to: { opacity: "1", transform: "scale(1)" },
         },
       },
     },

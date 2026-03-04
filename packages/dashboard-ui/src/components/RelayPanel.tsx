@@ -58,9 +58,23 @@ export function RelayPanel({
     <div className="flex flex-col h-full bg-dash-surface border-l border-dash-border font-mono text-[11px]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-10 border-b border-dash-border shrink-0">
-        <span className="text-[9px] font-semibold tracking-[1.5px] uppercase text-dash-text-muted">
-          Relay
-        </span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-[9px] font-semibold tracking-[1.5px] uppercase text-dash-text-muted">
+            Relay
+          </span>
+          <a
+            href="https://www.hexcore.app/docs/hexcore/cloud-relay"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dash-blue/10 border border-dash-blue/20 text-dash-blue hover:bg-dash-blue/20 transition-colors"
+          >
+            <svg width="12" height="12" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <polygon points="512,232 746,367 746,657 512,792 278,657 278,367" fill="none" stroke="#22AAF8" strokeWidth="48" opacity="0.9" />
+              <polygon points="512,418 618,479 618,601 512,662 406,601 406,479" fill="#4BCFFF" />
+            </svg>
+            <span className="text-[9px] font-semibold tracking-wider">HEXCORE</span>
+          </a>
+        </div>
         <button
           onClick={onClose}
           className="text-dash-text-muted hover:text-dash-text transition-colors px-1"

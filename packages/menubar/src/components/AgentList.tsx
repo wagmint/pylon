@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Agent, AgentStatus, Collision } from "../lib/types";
+import { ClampedText } from "./ClampedText";
+import { DecideButtons } from "./DecideButtons";
 
 const statusDot: Record<AgentStatus, string> = {
   idle: "bg-dash-text-muted",
@@ -80,19 +82,16 @@ function AgentRow({
   dimmed?: boolean;
 }) {
   const statusNotes = getStatusNotes(agent, collisions);
-  const [deciding, setDeciding] = useState(false);
+  const [decidedAction, setDecidedAction] = useState<"approve" | "deny" | null>(null);
 
-  async function handleDecide(action: "approve" | "deny") {
-    setDeciding(true);
-    try {
-      await fetch(`http://localhost:7433/api/sessions/${agent.sessionId}/decide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-    } catch { /* server down — ignore */ }
-    setDeciding(false);
-  }
+  useEffect(() => {
+    if (decidedAction) {
+      const t = setTimeout(() => setDecidedAction(null), 600);
+      return () => clearTimeout(t);
+    }
+  }, [decidedAction]);
+
+  const showBlocked = agent.status === "blocked" || decidedAction !== null;
 
   return (
     <div
@@ -127,16 +126,16 @@ function AgentRow({
           </span>
         </div>
         {agent.currentTask && (
-          <p className="text-[11px] text-dash-text-dim truncate mt-0.5" title={agent.currentTask}>
-            {agent.currentTask}
-          </p>
+          <div className="mt-0.5">
+            <ClampedText text={agent.currentTask} lines={2} className="text-[11px] text-dash-text-dim" />
+          </div>
         )}
         {statusNotes.map((note, i) => (
           <p key={`${agent.sessionId}-status-note-${i}`} className={`text-[10px] truncate mt-0.5 ${note.className}`}>
             {note.text}
           </p>
         ))}
-        {agent.status === "blocked" && agent.blockedOn && agent.blockedOn.length > 0 && (
+        {showBlocked && agent.blockedOn && agent.blockedOn.length > 0 && (
           <>
             {agent.blockedOn.slice(0, 3).map((item, i) => (
               item.detail ? (
@@ -152,23 +151,15 @@ function AgentRow({
             )}
           </>
         )}
-        {agent.status === "blocked" && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <button
-              disabled={deciding}
-              onClick={() => handleDecide("approve")}
-              className="text-[10px] font-medium px-2 py-0.5 rounded bg-dash-green/15 text-dash-green hover:bg-dash-green/25 transition-colors disabled:opacity-50"
-            >
-              {agent.blockedOn && agent.blockedOn.length > 1 ? `Approve All (${agent.blockedOn.length})` : "Approve"}
-              {isFirstBlocked && <span className="ml-1 opacity-50">↵</span>}
-            </button>
-            <button
-              disabled={deciding}
-              onClick={() => handleDecide("deny")}
-              className="text-[10px] font-medium px-2 py-0.5 rounded bg-dash-red/15 text-dash-red hover:bg-dash-red/25 transition-colors disabled:opacity-50"
-            >
-              Deny
-            </button>
+        {showBlocked && (
+          <div className="mt-1">
+            <DecideButtons
+              sessionId={agent.sessionId}
+              itemCount={agent.blockedOn?.length}
+              showEnterHint={isFirstBlocked}
+              size="sm"
+              onDecided={setDecidedAction}
+            />
           </div>
         )}
         <p className="text-[10px] text-dash-text-muted truncate">
