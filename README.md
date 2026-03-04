@@ -18,7 +18,7 @@
 Hexdeck reads local session logs from [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex), parses them into structured turn-by-turn data, and serves a live dashboard showing what your agents are doing in real time.
 
 <p align="center">
-  <img src=".github/assets/dashboard.gif" alt="Hexdeck Dashboard" width="900">
+  <img src=".github/assets/hexdeck-rec.gif" alt="Hexdeck Dashboard" width="900">
 </p>
 
 ## How sessions flow into Hexdeck
