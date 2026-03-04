@@ -56,7 +56,7 @@ Expand the widget to see details, approve or deny tool requests, and open the fu
 
 [**Download Hexdeck for Mac**](https://hexcore.app/api/download) (Apple Silicon)
 
-Launch from your Applications folder. The floating widget and background server start automatically. The full dashboard is available at [localhost:7433](http://localhost:7433).
+Launch from your Applications folder. The floating widget and background server start automatically. The full dashboard is available at [localhost:7433](http://localhost:7433). See the [getting started guide](https://www.hexcore.app/docs/hexdeck/getting-started) for more.
 
 ## Privacy
 
