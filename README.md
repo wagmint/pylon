@@ -70,27 +70,6 @@ Hexdeck is 100% offline. Zero network requests unless you explicitly connect to 
 | **Network** | None. Only outbound if you connect to Hexcore via the relay panel. |
 | **Telemetry** | None. No analytics, usage metrics, or tracking. |
 
-## API
-
-JSON API at `localhost:7433/api/` for building your own tooling.
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/projects` | List all projects with Claude Code and Codex sessions |
-| `GET /api/projects/:name/sessions` | List sessions for a project |
-| `GET /api/sessions/active` | Currently active sessions |
-| `GET /api/dashboard` | Full dashboard state |
-| `GET /api/dashboard/stream` | SSE stream of dashboard updates |
-| `GET /api/dashboard/feed` | Recent feed events |
-| `GET /api/dashboard/collisions` | Current file overlaps |
-| `GET /api/health` | Health check |
-
-## How it works
-
-Claude Code stores session data under `~/.claude/projects/` and Codex stores session logs under `~/.codex/sessions/`. Hexdeck scans both sources, parses the events into structured **turn-pair nodes** (one user message + everything the agent did in response), and computes dashboard state including active agents, file overlaps, risk signals, and a live feed.
-
-The server is a single [Hono](https://hono.dev) process that serves both the API and the static dashboard.
-
 ## Development
 
 ```bash
