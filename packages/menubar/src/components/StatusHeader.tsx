@@ -3,13 +3,13 @@ import type { TraySeverity } from "../lib/alerts";
 const hexColor: Record<TraySeverity, string> = {
   green: "var(--dash-green)",
   blue: "var(--dash-blue)",
-  grey: "var(--dash-text-muted)",
+  grey: "#9090a8",
 };
 
 const pulseClass: Record<TraySeverity, string> = {
   blue: "animate-dash-breathe",
   green: "",
-  grey: "",
+  grey: "animate-dash-idle-breathe",
 };
 
 interface StatusHeaderProps {

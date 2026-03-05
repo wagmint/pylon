@@ -35,6 +35,7 @@ export default {
         "fade-in": "fade-in 0.15s ease-out",
         "dash-pulse": "dash-pulse 1.5s infinite",
         "dash-breathe": "dash-breathe 3.5s ease-in-out infinite",
+        "dash-idle-breathe": "dash-idle-breathe 5s ease-in-out infinite",
         "tooltip-in": "tooltip-in 0.3s ease-out",
         "slide-in-right": "slide-in-right 0.25s ease-out",
         "slide-in-left": "slide-in-left 0.25s ease-out",
@@ -52,6 +53,10 @@ export default {
         "dash-breathe": {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
+        },
+        "dash-idle-breathe": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.65" },
         },
         "tooltip-in": {
           from: { opacity: "0", transform: "translateX(8px)" },
