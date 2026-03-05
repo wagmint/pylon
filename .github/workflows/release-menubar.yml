@@ -1,6 +1,7 @@
 name: Release Menubar
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "menubar-v*"
