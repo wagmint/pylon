@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveCodexBusyIdle, CODEX_BUSY_WINDOW_MS, CODEX_SETTLE_MS, CODEX_PROCESS_GRACE_MS } from "./codex-status.js";
+import {
+  resolveCodexBusyIdle,
+  CODEX_BUSY_WINDOW_MS,
+  CODEX_SETTLE_MS,
+  CODEX_PROCESS_GRACE_MS,
+  CODEX_IN_TURN_PROCESS_GRACE_MS,
+} from "./codex-status.js";
 import type { TurnNode } from "../types/index.js";
 
 function makeTurn(ts: number, durationMs: number | null): TurnNode {
@@ -63,6 +69,7 @@ describe("resolveCodexBusyIdle", () => {
     const status = resolveCodexBusyIdle({
       nowMs: base + 2_000,
       sessionMtimeMs: base,
+      processAlive: true,
       runtime: {
         inTurn: true,
         lastEventType: "turn_started",
@@ -78,6 +85,7 @@ describe("resolveCodexBusyIdle", () => {
     const status = resolveCodexBusyIdle({
       nowMs: base + CODEX_BUSY_WINDOW_MS + 1_000,
       sessionMtimeMs: base,
+      processAlive: false,
       runtime: {
         inTurn: true,
         lastEventType: "turn_started",
@@ -93,6 +101,7 @@ describe("resolveCodexBusyIdle", () => {
     const status = resolveCodexBusyIdle({
       nowMs: base + CODEX_SETTLE_MS + 100,
       sessionMtimeMs: base,
+      processAlive: true,
       runtime: {
         inTurn: false,
         lastEventType: "turn_complete",
@@ -108,6 +117,7 @@ describe("resolveCodexBusyIdle", () => {
     const status = resolveCodexBusyIdle({
       nowMs: base + 1_000,
       sessionMtimeMs: base,
+      processAlive: true,
       runtime: {
         inTurn: false,
         lastEventType: null,
@@ -123,6 +133,7 @@ describe("resolveCodexBusyIdle", () => {
     const status = resolveCodexBusyIdle({
       nowMs: base + CODEX_PROCESS_GRACE_MS + 100,
       sessionMtimeMs: base,
+      processAlive: true,
       runtime: {
         inTurn: false,
         lastEventType: null,
@@ -130,6 +141,38 @@ describe("resolveCodexBusyIdle", () => {
         lastToolActivityAt: null,
       },
       lastTurn: makeTurn(base - 20_000, 2_000),
+    });
+    expect(status).toBe("idle");
+  });
+
+  it("stays busy during a quiet live turn while the Codex process is still alive", () => {
+    const status = resolveCodexBusyIdle({
+      nowMs: base + CODEX_BUSY_WINDOW_MS + 30_000,
+      sessionMtimeMs: base,
+      processAlive: true,
+      runtime: {
+        inTurn: true,
+        lastEventType: "turn_started",
+        lastEventAt: new Date(base),
+        lastToolActivityAt: null,
+      },
+      lastTurn: makeTurn(base, null),
+    });
+    expect(status).toBe("busy");
+  });
+
+  it("goes idle if a quiet in-turn session exceeds the long live-process grace", () => {
+    const status = resolveCodexBusyIdle({
+      nowMs: base + CODEX_IN_TURN_PROCESS_GRACE_MS + 100,
+      sessionMtimeMs: base,
+      processAlive: true,
+      runtime: {
+        inTurn: true,
+        lastEventType: "turn_started",
+        lastEventAt: new Date(base),
+        lastToolActivityAt: null,
+      },
+      lastTurn: makeTurn(base, null),
     });
     expect(status).toBe("idle");
   });

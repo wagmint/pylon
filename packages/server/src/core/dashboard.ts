@@ -1336,6 +1336,7 @@ function determineAgentStatus(
       return resolveCodexBusyIdle({
         nowMs: Date.now(),
         sessionMtimeMs: mtimeMs,
+        processAlive: isActive,
         runtime: parsed.codexRuntime,
         lastTurn,
       });
