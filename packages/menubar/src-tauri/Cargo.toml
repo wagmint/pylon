@@ -1,6 +1,6 @@
 [package]
 name = "hexdeck-menubar"
-version = "0.5.18"
+version = "0.5.20"
 edition = "2021"
 
 [lib]

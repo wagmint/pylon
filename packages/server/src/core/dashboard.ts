@@ -873,10 +873,8 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
   const projects = listProjects();
   const now = Date.now();
 
-  // For each project with active sessions, include recent inactive sessions
-  const activeProjectPaths = new Set(activeSessions.map(s => s.projectPath));
+  // For each project, include recent inactive sessions
   for (const project of projects) {
-    if (!activeProjectPaths.has(project.decodedPath)) continue;
     const projectSessions = listSessions(project.encodedName);
     for (const s of projectSessions) {
       if (allSessions.has(s.id)) continue;
@@ -932,7 +930,6 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
   // 2c. Collect historical sessions for plan history (beyond RECENT_GRACE_MS, up to PLAN_HISTORY_MS)
   const historicalSessions = new Map<string, SessionInfo>();
   for (const project of projects) {
-    if (!activeProjectPaths.has(project.decodedPath)) continue;
     for (const s of listSessions(project.encodedName)) {
       if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
       if (isCodexSession(s)) continue;
@@ -946,7 +943,6 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
     if (!op.claude) continue;
     try {
       for (const project of listProjects(op.claude)) {
-        if (!activeProjectPaths.has(project.decodedPath)) continue;
         for (const s of listSessions(project.encodedName, op.claude)) {
           if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
           if (isCodexSession(s)) continue;
@@ -1137,11 +1133,19 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
     projectGroups.get(key)!.push(parsed);
   }
 
+  const isRenderablePlan = (p: SessionPlan): boolean => (
+    p.status !== "none"
+    && p.status !== "rejected"
+    && !(p.status === "drafting" && !p.markdown && !p.draftingActivity)
+  );
+
   const workstreams: Workstream[] = [];
   for (const [projectPath, sessions] of projectGroups) {
     const allProjectAgents = agents.filter(a => a.projectPath === projectPath);
     const activeProjectAgents = allProjectAgents.filter(a => a.isActive);
-    if (activeProjectAgents.length === 0) continue;
+    const hasAgentPlans = allProjectAgents.some(a => a.plans.length > 0);
+    const hasHistoricalPlans = historicalPlansMap.has(projectPath);
+    if (activeProjectAgents.length === 0 && !hasAgentPlans && !hasHistoricalPlans) continue;
     const orderedActiveProjectAgents = [...activeProjectAgents].sort((a, b) => (
       (sessionLastActivityMs.get(b.sessionId) ?? 0) - (sessionLastActivityMs.get(a.sessionId) ?? 0)
       || a.label.localeCompare(b.label)
@@ -1166,11 +1170,6 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
         .map(a => a.sessionId)
     );
 
-    const isRenderablePlan = (p: SessionPlan): boolean => (
-      p.status !== "none"
-      && p.status !== "rejected"
-      && !(p.status === "drafting" && !p.markdown && !p.draftingActivity)
-    );
     const agentByLabel = new Map(allProjectAgents.map(a => [a.label, a]));
 
     // Preserve plan history for the Plans panel/workstream card.
@@ -1250,6 +1249,41 @@ export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): D
       mode,
       totalCommands,
       totalPatches,
+    });
+  }
+
+  // 7b. Create plan-only workstreams for projects with only historical plans (no recent sessions)
+  for (const [projectPath, histPlans] of historicalPlansMap) {
+    if (workstreams.some(ws => ws.projectPath === projectPath)) continue;
+    const renderablePlans = histPlans.filter(isRenderablePlan);
+    if (renderablePlans.length === 0) continue;
+    renderablePlans.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    const project = projects.find(p => p.decodedPath === projectPath);
+    const projectId = project?.encodedName ?? projectPath.replace(/\//g, "-");
+    workstreams.push({
+      projectId,
+      projectPath,
+      name: basename(projectPath) || projectPath,
+      agents: [],
+      completionPct: 0,
+      totalTurns: 0,
+      completedTurns: 0,
+      hasCollision: false,
+      commits: 0,
+      errors: 0,
+      plans: renderablePlans,
+      planTasks: renderablePlans.flatMap(p => p.tasks),
+      risk: computeWorkstreamRisk([]),
+      intentCoveragePct: 0,
+      driftPct: 0,
+      intentConfidence: "low",
+      intentStatus: "no_clear_intent",
+      lastIntentUpdateAt: null,
+      intentLanes: { inProgress: [], done: [], unplanned: [] },
+      driftReasons: [],
+      mode: "claude",
+      totalCommands: 0,
+      totalPatches: 0,
     });
   }
 
