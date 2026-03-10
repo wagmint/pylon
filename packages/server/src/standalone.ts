@@ -4,6 +4,7 @@
  * redirects logs to ~/.hexdeck/server.log, and cleans up on exit.
  */
 import { startServer } from "./server/index.js";
+import { removeHooks } from "./core/blocked.js";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -45,6 +46,9 @@ const pidInfo = {
 writeFileSync(PID_FILE, JSON.stringify(pidInfo, null, 2));
 
 function cleanup() {
+  try {
+    removeHooks();
+  } catch {}
   try {
     if (existsSync(PID_FILE)) {
       unlinkSync(PID_FILE);

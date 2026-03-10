@@ -427,6 +427,55 @@ function hasHexdeckCommand(entry: unknown, marker: string): boolean {
 }
 
 /**
+ * Remove all hexdeck hooks from ~/.claude/settings.json.
+ * Called on server shutdown so Claude Code doesn't curl a dead server.
+ */
+export function removeHooks(): void {
+  try {
+    if (!existsSync(SETTINGS_PATH)) return;
+
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
+    } catch {
+      return;
+    }
+
+    if (!settings.hooks || typeof settings.hooks !== "object") return;
+    const hooks = settings.hooks as Record<string, unknown>;
+
+    let dirty = false;
+    const hookEvents = ["PermissionRequest", "PreToolUse", "PostToolUse", "Stop"];
+
+    for (const event of hookEvents) {
+      if (!Array.isArray(hooks[event])) continue;
+      const entries = hooks[event] as unknown[];
+      for (let i = entries.length - 1; i >= 0; i--) {
+        if (
+          hasHexdeckCommand(entries[i], HOOK_MARKER) ||
+          hasHexdeckCommand(entries[i], GATE_MARKER)
+        ) {
+          entries.splice(i, 1);
+          dirty = true;
+        }
+      }
+      // Remove empty arrays to keep settings clean
+      if (entries.length === 0) {
+        delete hooks[event];
+        dirty = true;
+      }
+    }
+
+    if (!dirty) return;
+
+    writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+    console.log("Hexdeck: removed hooks from ~/.claude/settings.json");
+  } catch (err) {
+    console.error("Hexdeck: failed to remove hooks:", err);
+  }
+}
+
+/**
  * Ensure hexdeck hooks are installed in ~/.claude/settings.json.
  *
  * - PermissionRequest: permission-gate hook (long-poll for remote approve/deny)

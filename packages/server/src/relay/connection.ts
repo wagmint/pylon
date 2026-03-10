@@ -12,6 +12,7 @@ import type {
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+const PROACTIVE_REFRESH_MS = 12 * 60 * 1000; // refresh token at 12min (access token TTL is 15min)
 
 export type RelayConnectionStatus = "connected" | "connecting" | "disconnected";
 
@@ -42,6 +43,7 @@ export class RelayConnection {
   private onCollisionAlerts: OnCollisionAlerts | null;
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private authenticated = false;
@@ -152,6 +154,7 @@ export class RelayConnection {
         if (msg.type === "auth_ok") {
           this.authenticated = true;
           this.operatorId = msg.operatorId;
+          this.scheduleProactiveRefresh();
         } else if (msg.type === "auth_error") {
           const reason = (msg as { reason?: string; message?: string }).reason
             ?? (msg as { message?: string }).message ?? "unknown";
@@ -241,6 +244,17 @@ export class RelayConnection {
     }
   }
 
+  private scheduleProactiveRefresh(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    if (!this.refreshToken) return;
+
+    this.refreshTimer = setTimeout(async () => {
+      if (!this.isConnected || this.intentionalClose) return;
+      console.log(`[relay] Proactive token refresh for ${this.hexcoreId}`);
+      await this.tryTokenRefresh();
+    }, PROACTIVE_REFRESH_MS);
+  }
+
   private send(msg: object): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -267,6 +281,10 @@ export class RelayConnection {
 
   private cleanup(): void {
     this.stopHeartbeat();
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
