@@ -1357,6 +1357,23 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
 
   const localPlanCollisions = detectLocalPlanCollisions(activeAgents);
 
+  // ─── Cache GC: evict entries for sessions no longer in the working set ───
+  // Without this, parseCache/codexParseCache/accumulators grow unbounded as
+  // sessions age past the discovery window (24h recent + 7d historical).
+  const liveSessionIds = new Set<string>([
+    ...allSessions.keys(),
+    ...historicalSessions.keys(),
+  ]);
+  for (const id of parseCache.keys()) {
+    if (!liveSessionIds.has(id)) parseCache.delete(id);
+  }
+  for (const id of codexParseCache.keys()) {
+    if (!liveSessionIds.has(id)) codexParseCache.delete(id);
+  }
+  for (const id of accumulators.keys()) {
+    if (!liveSessionIds.has(id)) accumulators.delete(id);
+  }
+
   return {
     state: { operators, agents: activeAgents, workstreams, collisions, localPlanCollisions, feed, summary },
     parsedSessions,

@@ -19,6 +19,8 @@ interface PlanningSession {
   tasks: PlanTask[];
 }
 
+const FILE_PATH_PATTERN = /\b(?:[a-zA-Z0-9._-]+\/)+[a-zA-Z0-9._-]+\.[a-zA-Z0-9]+\b/g;
+
 const LOW_INFORMATION_TEXT = new Set([
   "continue",
   "try again",
@@ -67,6 +69,11 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
+function intersect(left: string[], right: string[]): string[] {
+  const rightSet = new Set(right);
+  return left.filter((value) => rightSet.has(value));
+}
+
 function jaccard(a: string[], b: string[]): number {
   const aSet = new Set(a);
   const bSet = new Set(b);
@@ -88,6 +95,11 @@ function extractPlanSummary(plan: SessionPlan): string | null {
   }
   const firstTask = plan.tasks.find((task) => !isLowInformation(task.subject));
   return firstTask?.subject ?? null;
+}
+
+function extractFilePaths(session: PlanningSession): string[] {
+  const text = [session.planSummary, session.planMarkdown, ...session.tasks.map((task) => task.subject)].join("\n");
+  return unique((text.match(FILE_PATH_PATTERN) ?? []).map((value) => value.trim().toLowerCase()));
 }
 
 function latestPlanningSession(agent: Agent): PlanningSession | null {
@@ -200,6 +212,7 @@ function buildCollision(
 function comparePlanningSessions(left: PlanningSession, right: PlanningSession): LocalPlanCollision | null {
   const matchingTasks = sharedTaskSubjects(left, right);
   const sharedTokens = sharedPlanTokens(left, right);
+  const sharedFiles = intersect(extractFilePaths(left), extractFilePaths(right));
   const contradictions = contradictionSignals(left, right);
 
   if (contradictions.length > 0) {
@@ -229,6 +242,7 @@ function comparePlanningSessions(left: PlanningSession, right: PlanningSession):
   if (
     (matchingTasks.length > 0 && (summarySimilarity >= 0.7 || sharedTokens.length >= 4))
     || (matchingTasks.length === 0 && strongSummaryMatch)
+    || (sharedFiles.length > 0 && strongSummaryMatch)
   ) {
     return buildCollision(
       "duplicate_plan",
@@ -244,12 +258,13 @@ function comparePlanningSessions(left: PlanningSession, right: PlanningSession):
 
   if (
     matchingTasks.length > 0 ||
+    (sharedFiles.length > 0 && (sharedTokens.length >= 2 || summarySimilarity >= 0.25)) ||
     sharedTokens.length >= 3 ||
     (sharedTokens.length >= 2 && summarySimilarity >= 0.4)
   ) {
     return buildCollision(
       "overlapping_task",
-      matchingTasks.length > 0 ? "high" : "medium",
+      matchingTasks.length > 0 || sharedFiles.length > 0 ? "high" : "medium",
       "warning",
       left,
       right,
