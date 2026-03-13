@@ -233,7 +233,7 @@ export default function DashboardPage() {
 
   if (!state) return null;
 
-  const { operators, agents, workstreams, collisions, feed, summary } = state;
+  const { operators, agents, workstreams, collisions, localPlanCollisions, feed, summary } = state;
 
   // Empty state: Hexdeck is running but no sessions found
   const isEmpty = workstreams.length === 0 && agents.length === 0 && feed.length === 0;
@@ -341,26 +341,24 @@ export default function DashboardPage() {
 
         {/* CENTER PANEL */}
         <div className="flex flex-col bg-dash-bg min-h-0">
-          {/* Top half: Intent Map + Live Feed */}
-          <div className="flex-1 grid grid-cols-2 gap-px bg-dash-border min-h-0">
-            {/* Intent Map */}
+          {/* Top: Intent Map + Live Feed */}
+          <div className="flex-1 min-h-0 grid gap-px bg-dash-border" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div data-tour="intent-map" className="bg-dash-bg overflow-y-auto scrollbar-thin">
               <PanelHeader
                 title="Intent Map"
-                count={`${filteredWorkstreams.length} workstream${filteredWorkstreams.length !== 1 ? "s" : ""}`}
+                count={`${filteredWorkstreams.length} project${filteredWorkstreams.length !== 1 ? "s" : ""}`}
               />
               {filteredWorkstreams.length === 0 ? (
                 <div className="px-3.5 py-8 text-center text-dash-text-muted text-xs">
-                  No workstreams
+                  No workstreams to map
                 </div>
               ) : (
-                filteredWorkstreams.map((ws) => (
-                  <WorkstreamNode key={ws.projectId} workstream={ws} />
+                filteredWorkstreams.map((workstream) => (
+                  <WorkstreamNode key={workstream.projectId} workstream={workstream} />
                 ))
               )}
             </div>
 
-            {/* Live Feed */}
             <div data-tour="live-feed" className="bg-dash-bg overflow-y-auto scrollbar-thin">
               <PanelHeader title="Live Feed">
                 <span className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-[8px] font-bold px-1.5 py-0.5 rounded tracking-widest uppercase">
@@ -409,7 +407,12 @@ export default function DashboardPage() {
             {selectedCollision ? (
               <CollisionDetail collision={selectedCollision} onDismiss={() => setSelectedCollision(null)} />
             ) : (
-              <PlanDetail workstreams={filteredWorkstreams} planWindow={planWindow} onPlanWindowChange={setPlanWindow} />
+              <PlanDetail
+                workstreams={filteredWorkstreams}
+                localPlanCollisions={localPlanCollisions}
+                planWindow={planWindow}
+                onPlanWindowChange={setPlanWindow}
+              />
             )}
           </div>
         </div>

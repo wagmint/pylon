@@ -4,6 +4,7 @@ export type {
   OperatorStatus, Operator,
   PlanStatus, PlanTask, DraftingActivity, SessionPlan,
   AgentStatus, Agent, WorkstreamMode, Workstream, CollisionSeverity, Collision,
+  LocalPlanCollisionType, LocalPlanCollisionConfidence, LocalPlanCollisionSeverity, LocalPlanCollision,
   FeedEventType, FeedEvent, DashboardSummary, DashboardState,
 } from "./dashboard.js";
 

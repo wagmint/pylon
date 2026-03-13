@@ -32,6 +32,10 @@ function serializeState(state: ReturnType<typeof buildDashboardState>) {
       ...col,
       detectedAt: serializeDate(col.detectedAt),
     })),
+    localPlanCollisions: state.localPlanCollisions.map((collision) => ({
+      ...collision,
+      detectedAt: serializeDate(collision.detectedAt),
+    })),
     feed: state.feed.map((ev) => ({
       ...ev,
       timestamp: serializeDate(ev.timestamp),

@@ -9,6 +9,7 @@ import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
 import { detectCollisions, getUncommittedFiles } from "./collisions.js";
 import { buildFeed } from "./feed.js";
+import { detectLocalPlanCollisions } from "./plan-collisions.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
@@ -577,6 +578,19 @@ interface IntentInsights {
   driftReasons: string[];
 }
 
+function buildCanonicalSessionPlans(
+  parsed: ParsedSession,
+  label: string,
+  isActive: boolean,
+): SessionPlan[] {
+  const sessionAcc = accumulators.get(parsed.session.id);
+  let plans = buildSessionPlans(parsed, label);
+  if (plans.length === 0 && sessionAcc?.plans?.length) {
+    plans = sessionAcc.plans.map((plan) => ({ ...plan, agentLabel: label }));
+  }
+  return plans.map((plan) => ({ ...plan, isFromActiveSession: isActive }));
+}
+
 function hasEvidence(task: IntentTaskView): boolean {
   return task.evidence.edits > 0 || task.evidence.commits > 0 || task.evidence.lastTouchedAt !== null;
 }
@@ -1008,6 +1022,13 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
 
   const collisionFileSet = new Set(collisions.flatMap(c => c.agents.map(a => a.sessionId)));
 
+  const sessionPlansMap = new Map<string, SessionPlan[]>();
+  for (const parsed of parsedSessions) {
+    const label = labelMap.get(parsed.session.id) ?? parsed.session.id.slice(0, 8);
+    const isActive = activeSessionIds.has(parsed.session.id);
+    sessionPlansMap.set(parsed.session.id, buildCanonicalSessionPlans(parsed, label, isActive));
+  }
+
   // 5b. Cache uncommitted files per project
   const uncommittedByProject = new Map<string, string[]>();
   function cachedUncommitted(projectPath: string): string[] {
@@ -1030,16 +1051,10 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     const lastTurn = parsed.turns[parsed.turns.length - 1];
     const currentTask = lastTurn?.summary ?? "idle";
 
-    // Plans: fall back to accumulator if current parse lost them (compaction)
-    const sessionAcc = accumulators.get(parsed.session.id);
-    let plans = buildSessionPlans(parsed, label);
-    if (plans.length === 0 && sessionAcc?.plans?.length) {
-      plans = sessionAcc.plans.map(p => ({ ...p, agentLabel: label }));
-    }
-    // Tag plans with whether their owning session is currently running
-    plans = plans.map(p => ({ ...p, isFromActiveSession: isActive }));
+    const plans = sessionPlansMap.get(parsed.session.id) ?? [];
 
     // Risk: pass accumulated error history for trend continuity, and accumulated cost for compaction
+    const sessionAcc = accumulators.get(parsed.session.id);
     const risk = computeAgentRisk(parsed, sessionAcc?.errorHistory, sessionAcc?.totalCost);
 
     const blockedOn = status === "blocked"
@@ -1072,7 +1087,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     try {
       const parsed = getCachedOrParse(session);
       const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
-      const plans = buildSessionPlans(parsed, label).map(p => ({ ...p, isFromActiveSession: false }));
+      const plans = buildCanonicalSessionPlans(parsed, label, false);
       if (plans.length === 0) continue;
       const pp = parsed.session.projectPath;
       if (!historicalPlansMap.has(pp)) historicalPlansMap.set(pp, []);
@@ -1340,8 +1355,10 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     totalCost,
   };
 
+  const localPlanCollisions = detectLocalPlanCollisions(activeAgents);
+
   return {
-    state: { operators, agents: activeAgents, workstreams, collisions, feed, summary },
+    state: { operators, agents: activeAgents, workstreams, collisions, localPlanCollisions, feed, summary },
     parsedSessions,
   };
 }

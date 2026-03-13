@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { SessionPlan, Workstream, DraftingActivity, IntentTaskView, AgentType } from "../types";
+import type { SessionPlan, Workstream, DraftingActivity, IntentTaskView, AgentType, LocalPlanCollision, LocalPlanCollisionType } from "../types";
 import { OperatorTag } from "./OperatorTag";
 import { timeAgo, formatDuration } from "../utils";
 
@@ -9,6 +9,7 @@ export type PlanWindow = "24h" | "3d" | "7d";
 
 interface PlanDetailProps {
   workstreams: Workstream[];
+  localPlanCollisions?: LocalPlanCollision[];
   planWindow?: PlanWindow;
   onPlanWindowChange?: (w: PlanWindow) => void;
 }
@@ -21,6 +22,7 @@ interface PlanEntry {
   tasksTotal: number;
   operatorId: string;
   agentType: AgentType;
+  sessionId: string | null;
 }
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -64,6 +66,7 @@ function collectPlans(workstreams: Workstream[], planWindow: PlanWindow = "24h")
         tasksTotal: plan.tasks.length,
         operatorId: matchingAgent?.operatorId ?? "self",
         agentType: matchingAgent?.agentType ?? "claude",
+        sessionId: matchingAgent?.sessionId ?? null,
       });
     }
   }
@@ -80,7 +83,7 @@ function draftingSummaryLine(activity: DraftingActivity): string {
     parts.push(`${activity.searches.length} searches`);
   if (activity.turnCount > 0)
     parts.push(`${activity.turnCount} turns`);
-  return parts.length > 0 ? `Exploring \u2014 ${parts.join(", ")}` : "Exploring codebase\u2026";
+  return parts.length > 0 ? `Exploring — ${parts.join(", ")}` : "Exploring codebase…";
 }
 
 function DraftingActivityPanel({ activity, planTimestamp }: { activity: DraftingActivity; planTimestamp: string }) {
@@ -97,7 +100,7 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
           <span className="relative inline-flex rounded-full h-2 w-2 bg-dash-purple" />
         </span>
         <span className="text-[11px] text-dash-text">
-          {activity.approachSummary || "Exploring codebase\u2026"}
+          {activity.approachSummary || "Exploring codebase…"}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-dash-text-dim">
@@ -116,7 +119,7 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
       {activity.filesExplored.length > 0 && (
         <div>
           <button onClick={() => setShowFiles(!showFiles)} className="text-[10px] text-dash-text-dim hover:text-dash-text transition-colors">
-            Read {activity.filesExplored.length} files {showFiles ? "\u25B4" : "\u25BE"}
+            Read {activity.filesExplored.length} files {showFiles ? "▴" : "▾"}
           </button>
           {showFiles && (
             <div className="mt-1 pl-2 space-y-px max-h-32 overflow-y-auto">
@@ -130,7 +133,7 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
       {activity.searches.length > 0 && (
         <div>
           <button onClick={() => setShowSearches(!showSearches)} className="text-[10px] text-dash-text-dim hover:text-dash-text transition-colors">
-            {activity.searches.length} searches {showSearches ? "\u25B4" : "\u25BE"}
+            {activity.searches.length} searches {showSearches ? "▴" : "▾"}
           </button>
           {showSearches && (
             <div className="mt-1 pl-2 space-y-px max-h-32 overflow-y-auto">
@@ -146,21 +149,57 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
 }
 
 const taskIcon: Record<string, { char: string; className: string }> = {
-  completed: { char: "\u2713", className: "text-dash-green" },
-  in_progress: { char: "\u25B6", className: "text-dash-blue" },
-  pending: { char: "\u25CB", className: "text-dash-text-muted" },
-  deleted: { char: "\u2212", className: "text-dash-text-muted opacity-40" },
+  completed: { char: "✓", className: "text-dash-green" },
+  in_progress: { char: "▶", className: "text-dash-blue" },
+  pending: { char: "○", className: "text-dash-text-muted" },
+  deleted: { char: "−", className: "text-dash-text-muted opacity-40" },
 };
 
 const PLAN_WINDOWS: PlanWindow[] = ["24h", "3d", "7d"];
 
-function PlanOverview({ entries, onSelect, planWindow, onPlanWindowChange }: {
+const collisionLabel: Record<LocalPlanCollisionType, string> = {
+  contradictory_plan: "Conflict",
+  duplicate_plan: "Duplicate",
+  overlapping_task: "Overlap",
+};
+
+const collisionClass: Record<LocalPlanCollisionType, string> = {
+  contradictory_plan: "text-dash-red border-dash-red/40 bg-dash-red/10",
+  duplicate_plan: "text-dash-yellow border-dash-yellow/40 bg-dash-yellow/10",
+  overlapping_task: "text-dash-blue border-dash-blue/40 bg-dash-blue/10",
+};
+
+const confidenceClass: Record<LocalPlanCollision["confidence"], string> = {
+  high: "text-dash-red border-dash-red/30 bg-dash-red/10",
+  medium: "text-dash-yellow border-dash-yellow/30 bg-dash-yellow/10",
+  low: "text-dash-text border-dash-border bg-dash-surface-2",
+};
+
+function renderCollisionExplanation(collision: LocalPlanCollision): string {
+  if (collision.type === "duplicate_plan") {
+    return "These plans appear to describe the same workstream.";
+  }
+
+  if (collision.type === "overlapping_task") {
+    return "These plans appear to touch related parts of the same feature area.";
+  }
+
+  if (collision.evidence.conflictingSignals.length > 0) {
+    return "These plans appear to take opposing approaches in the same area.";
+  }
+
+  return "These plans appear to be in tension and may need coordination.";
+}
+
+function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPlanWindowChange }: {
   entries: PlanEntry[];
+  localPlanCollisions: LocalPlanCollision[];
   onSelect: (idx: number) => void;
   planWindow: PlanWindow;
   onPlanWindowChange?: (w: PlanWindow) => void;
 }) {
   const [expandedPlanKeys, setExpandedPlanKeys] = useState<Set<string>>(new Set());
+  const [expandedCollisionKeys, setExpandedCollisionKeys] = useState<Set<string>>(new Set());
 
   if (entries.length === 0) {
     return (
@@ -218,6 +257,10 @@ function PlanOverview({ entries, onSelect, planWindow, onPlanWindowChange }: {
         const cfg = statusConfig[entry.plan.status];
         const planKey = `${entry.operatorId}:${entry.plan.agentLabel}:${entry.plan.timestamp}:${entry.title}`;
         const isExpanded = expandedPlanKeys.has(planKey);
+        const isCollisionExpanded = expandedCollisionKeys.has(planKey);
+        const relatedCollisions = entry.sessionId
+          ? localPlanCollisions.filter((collision) => collision.sessionIds.includes(entry.sessionId!))
+          : [];
         return (
           <div key={planKey} className="border-b border-dash-border">
             <button onClick={() => onSelect(i)} className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-dash-surface-2 transition-colors text-left">
@@ -264,7 +307,25 @@ function PlanOverview({ entries, onSelect, planWindow, onPlanWindowChange }: {
                         });
                       }}
                     >
-                      {entry.tasksDone}/{entry.tasksTotal} tasks {isExpanded ? "\u25B4" : "\u25BE"}
+                      {entry.tasksDone}/{entry.tasksTotal} tasks {isExpanded ? "▴" : "▾"}
+                    </span>
+                  )}
+                  {relatedCollisions.length > 0 && (
+                    <span
+                      className="cursor-pointer inline-flex items-center gap-1 rounded border border-dash-red/50 bg-dash-red/15 px-1.5 py-px text-[9px] font-semibold text-dash-red shadow-[0_0_0_1px_rgba(255,59,92,0.1)] hover:bg-dash-red/25 hover:border-dash-red transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedCollisionKeys((prev) => {
+                          const next = new Set(prev);
+                          if (isCollisionExpanded) next.delete(planKey);
+                          else next.add(planKey);
+                          return next;
+                        });
+                      }}
+                      title="Show colliding plans"
+                    >
+                      <span className="text-[10px] leading-none">!</span>
+                      <span>{relatedCollisions.length} collision{relatedCollisions.length !== 1 ? "s" : ""} {isCollisionExpanded ? "▴" : "▾"}</span>
                     </span>
                   )}
                   {entry.plan.planDurationMs != null && <span>planned in {formatDuration(entry.plan.planDurationMs)}</span>}
@@ -286,6 +347,38 @@ function PlanOverview({ entries, onSelect, planWindow, onPlanWindowChange }: {
                     <div key={`${task.id}-${ti}`} className="flex items-center gap-1.5 text-[10px] text-dash-text-dim">
                       <span className={`text-[9px] w-3 text-center shrink-0 ${icon.className}`}>{icon.char}</span>
                       <span className={`truncate ${task.status === "completed" ? "line-through opacity-50" : ""}`}>{task.subject}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {isCollisionExpanded && relatedCollisions.length > 0 && (
+              <div className="px-3.5 pb-2 pl-8 space-y-1">
+                <div className="text-[9px] uppercase tracking-[0.18em] text-dash-text-muted">Collides With</div>
+                {relatedCollisions.map((collision) => {
+                  const otherSessionId = collision.sessionIds[0] === entry.sessionId
+                    ? collision.sessionIds[1]
+                    : collision.sessionIds[0];
+                  const otherEntry = entries.find((candidate) => candidate.sessionId === otherSessionId);
+                  const otherTitle = otherEntry?.title
+                    ?? collision.evidence.leftPlanSummary
+                    ?? collision.evidence.rightPlanSummary
+                    ?? "Related plan";
+                  const otherLabel = otherEntry?.plan.agentLabel ?? otherSessionId.slice(0, 8);
+
+                  return (
+                    <div key={collision.id} className="rounded border border-dash-border bg-dash-surface px-2 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center rounded border px-1 py-px text-[8px] font-semibold ${collisionClass[collision.type]}`}>
+                          {collisionLabel[collision.type]}
+                        </span>
+                        <span className="text-[10px] font-medium text-dash-text">{otherLabel}</span>
+                        <ConfidenceBadge confidence={collision.confidence} />
+                      </div>
+                      <div className="mt-1 text-[11px] text-dash-text">{otherTitle}</div>
+                      <div className="mt-1 text-[10px] text-dash-text-dim">
+                        {renderCollisionExplanation(collision)}
+                      </div>
                     </div>
                   );
                 })}
@@ -420,7 +513,7 @@ function renderIntentTask(task: IntentTaskView) {
         {task.ownerLabel && <span className="text-[9px] text-dash-blue">{task.ownerLabel}</span>}
       </div>
       <div className="text-[10px] text-dash-text truncate">{task.subject}</div>
-      {evidenceParts.length > 0 && <div className="text-[9px] text-dash-text-muted mt-0.5">{evidenceParts.join(" \u2022 ")}</div>}
+      {evidenceParts.length > 0 && <div className="text-[9px] text-dash-text-muted mt-0.5">{evidenceParts.join(" • ")}</div>}
     </div>
   );
 }
@@ -441,7 +534,7 @@ function PlanVsRealityView({ workstream }: { workstream: Workstream }) {
           {workstream.lastIntentUpdateAt && <span>updated {timeAgo(workstream.lastIntentUpdateAt)}</span>}
           {activePlan && <span>plan: {extractTitle(activePlan.markdown)}</span>}
         </div>
-        {workstream.driftReasons.length > 0 && <div className="text-[9px] text-dash-yellow mt-1">{workstream.driftReasons.slice(0, 3).join(" \u2022 ")}</div>}
+        {workstream.driftReasons.length > 0 && <div className="text-[9px] text-dash-yellow mt-1">{workstream.driftReasons.slice(0, 3).join(" • ")}</div>}
       </div>
       <div className="grid grid-cols-2 gap-px bg-dash-border min-h-0">
         <div className="bg-dash-bg px-3.5 py-2.5">
@@ -469,9 +562,23 @@ function PlanVsRealityView({ workstream }: { workstream: Workstream }) {
   );
 }
 
-export function PlanDetail({ workstreams, planWindow = "24h", onPlanWindowChange }: PlanDetailProps) {
+export function PlanDetail({ workstreams, localPlanCollisions = [], planWindow = "24h", onPlanWindowChange }: PlanDetailProps) {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const entries = collectPlans(workstreams, planWindow);
   if (selectedIdx !== null && selectedIdx < entries.length) return <PlanMarkdownView entry={entries[selectedIdx]} onBack={() => setSelectedIdx(null)} />;
-  return <PlanOverview entries={entries} onSelect={setSelectedIdx} planWindow={planWindow} onPlanWindowChange={onPlanWindowChange} />;
+  return <PlanOverview entries={entries} localPlanCollisions={localPlanCollisions} onSelect={setSelectedIdx} planWindow={planWindow} onPlanWindowChange={onPlanWindowChange} />;
+}
+function ConfidenceBadge({ confidence }: { confidence: LocalPlanCollision["confidence"] }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-xl border px-2 py-1 text-[8px] font-semibold ${confidenceClass[confidence]}`}
+    >
+      <span className="inline-flex items-end gap-[2px] h-3">
+        <span className="w-[3px] h-[6px] rounded-[2px] bg-current opacity-60" />
+        <span className="w-[3px] h-[9px] rounded-[2px] bg-current opacity-75" />
+        <span className="w-[3px] h-[12px] rounded-[2px] bg-current" />
+      </span>
+      <span className="capitalize">{confidence} confidence</span>
+    </span>
+  );
 }

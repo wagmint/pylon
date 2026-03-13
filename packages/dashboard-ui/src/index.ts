@@ -27,6 +27,10 @@ export type {
   RelayConnectionStatus,
   RelayTargetInfo,
   ActiveProject,
+  LocalPlanCollision,
+  LocalPlanCollisionType,
+  LocalPlanCollisionConfidence,
+  LocalPlanCollisionSeverity,
 } from "./types";
 
 // Utils

@@ -225,6 +225,33 @@ export interface Collision {
   detectedAt: Date;
 }
 
+export type LocalPlanCollisionType =
+  | "duplicate_plan"
+  | "overlapping_task"
+  | "contradictory_plan";
+
+export type LocalPlanCollisionConfidence = "high" | "medium" | "low";
+
+export type LocalPlanCollisionSeverity = "info" | "warning" | "critical";
+
+export interface LocalPlanCollision {
+  id: string;
+  type: LocalPlanCollisionType;
+  confidence: LocalPlanCollisionConfidence;
+  severity: LocalPlanCollisionSeverity;
+  projectPath: string;
+  sessionIds: [string, string];
+  detectedAt: Date;
+  summary: string;
+  explanation: string;
+  evidence: {
+    leftPlanSummary: string | null;
+    rightPlanSummary: string | null;
+    matchingTasks: string[];
+    conflictingSignals: string[];
+  };
+}
+
 export type FeedEventType =
   | "collision"
   | "collision_resolved"
@@ -286,6 +313,7 @@ export interface DashboardState {
   agents: Agent[];
   workstreams: Workstream[];
   collisions: Collision[];
+  localPlanCollisions: LocalPlanCollision[];
   feed: FeedEvent[];
   summary: DashboardSummary;
 }
