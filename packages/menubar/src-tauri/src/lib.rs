@@ -25,6 +25,8 @@ struct WidgetSettings {
     has_seen_tooltip: bool,
     #[serde(default)]
     onboarding_v1_completed: bool,
+    #[serde(default)]
+    float_across_spaces: bool,
 }
 
 fn position_file() -> Option<PathBuf> {
@@ -49,13 +51,14 @@ fn load_widget_visibility() -> bool {
 }
 
 fn load_settings() -> WidgetSettings {
+    let default = WidgetSettings { show_widget: true, has_seen_tooltip: false, onboarding_v1_completed: false, float_across_spaces: false };
     let Some(path) = settings_file() else {
-        return WidgetSettings { show_widget: true, has_seen_tooltip: false, onboarding_v1_completed: false };
+        return default;
     };
     let Ok(data) = fs::read_to_string(path) else {
-        return WidgetSettings { show_widget: true, has_seen_tooltip: false, onboarding_v1_completed: false };
+        return default;
     };
-    serde_json::from_str(&data).unwrap_or(WidgetSettings { show_widget: true, has_seen_tooltip: false, onboarding_v1_completed: false })
+    serde_json::from_str(&data).unwrap_or(default)
 }
 
 fn save_settings(settings: &WidgetSettings) -> Result<(), String> {
@@ -83,6 +86,30 @@ fn apply_widget_visibility(app: &tauri::AppHandle, show_widget: bool) {
             let _ = widget.hide();
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_float_across_spaces(app: &tauri::AppHandle, enabled: bool) {
+    for label in ["widget", "main"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.set_visible_on_all_workspaces(enabled);
+        }
+    }
+}
+
+#[tauri::command]
+fn load_float_across_spaces() -> bool {
+    load_settings().float_across_spaces
+}
+
+#[tauri::command]
+fn save_float_across_spaces(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = load_settings();
+    settings.float_across_spaces = enabled;
+    save_settings(&settings)?;
+    #[cfg(target_os = "macos")]
+    apply_float_across_spaces(&app, enabled);
+    Ok(())
 }
 
 // ─── Server Lifecycle ──────────────────────────────────────────────────────
@@ -498,6 +525,10 @@ pub fn run() {
             // When shown, briefly focus to activate macOS mouse tracking.
             apply_widget_visibility(&app.handle().clone(), show_widget_flag.load(Ordering::SeqCst));
 
+            // Apply float-across-spaces from persisted setting.
+            #[cfg(target_os = "macos")]
+            apply_float_across_spaces(&app.handle().clone(), load_settings().float_across_spaces);
+
             // Show onboarding window on first launch
             if !load_settings().onboarding_v1_completed {
                 if let Some(onboarding) = app.get_webview_window("onboarding") {
@@ -516,6 +547,8 @@ pub fn run() {
             save_has_seen_tooltip,
             load_has_completed_onboarding,
             save_has_completed_onboarding,
+            load_float_across_spaces,
+            save_float_across_spaces,
             quit_app,
             ensure_server
         ])
