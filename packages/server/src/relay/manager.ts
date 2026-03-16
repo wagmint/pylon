@@ -3,10 +3,15 @@ import { loadOperatorConfig, getSelfName, getOperatorColor } from "../core/confi
 import { loadRelayConfig, saveRelayConfig } from "./config.js";
 import { transformToOperatorState } from "./transform.js";
 import { buildIntentEventsForTarget } from "./intent-events.js";
+import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
 import type { RelayTarget } from "./types.js";
+
+const INTENT_BATCH_SIZE = 100;
+const INTENT_FLUSH_INTERVAL_MS = 2_000;
+const SEEN_EVENT_TTL_MS = 15 * 60 * 1000;
 
 export interface RelayTargetStatus {
   hexcoreId: string;
@@ -16,9 +21,17 @@ export interface RelayTargetStatus {
   addedAt: string;
 }
 
+interface PendingIntentFlushState {
+  queue: NormalizedIntentEvent[];
+  queuedIds: Set<string>;
+  seenIds: Map<string, number>;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+  flushInFlight: Promise<void> | null;
+}
+
 class RelayManager {
   private connections = new Map<string, RelayConnection>();
-  private recentIntentEventIdsByTarget = new Map<string, Map<string, number>>();
+  private pendingIntentFlushByTarget = new Map<string, PendingIntentFlushState>();
   private started = false;
   private collisionAlertCallback: OnCollisionAlerts | null = null;
 
@@ -42,7 +55,12 @@ class RelayManager {
       conn.disconnect();
     }
     this.connections.clear();
-    this.recentIntentEventIdsByTarget.clear();
+    for (const state of this.pendingIntentFlushByTarget.values()) {
+      if (state.flushTimer) {
+        clearTimeout(state.flushTimer);
+      }
+    }
+    this.pendingIntentFlushByTarget.clear();
   }
 
   /** Get status for all configured targets with live connection info. */
@@ -110,6 +128,11 @@ class RelayManager {
       conn.disconnect();
       this.connections.delete(hexcoreId);
     }
+    const pending = this.pendingIntentFlushByTarget.get(hexcoreId);
+    if (pending?.flushTimer) {
+      clearTimeout(pending.flushTimer);
+    }
+    this.pendingIntentFlushByTarget.delete(hexcoreId);
     return true;
   }
 
@@ -195,6 +218,11 @@ class RelayManager {
       if (!targetIds.has(id)) {
         conn.disconnect();
         this.connections.delete(id);
+        const pending = this.pendingIntentFlushByTarget.get(id);
+        if (pending?.flushTimer) {
+          clearTimeout(pending.flushTimer);
+        }
+        this.pendingIntentFlushByTarget.delete(id);
       }
     }
 
@@ -229,30 +257,84 @@ class RelayManager {
       const allEvents = buildIntentEventsForTarget(rawState, parsedSessions, target.projects);
       if (allEvents.length === 0) return;
 
+      const state = this.getPendingIntentState(target.hexcoreId);
       const now = Date.now();
-      const recent = this.recentIntentEventIdsByTarget.get(target.hexcoreId) ?? new Map<string, number>();
-      this.pruneRecentIntentEventIds(recent, now);
+      this.pruneSeenIntentEventIds(state.seenIds, now);
 
-      const unsent = allEvents.filter((event) => !recent.has(event.eventId));
-      if (unsent.length === 0) {
-        this.recentIntentEventIdsByTarget.set(target.hexcoreId, recent);
+      for (const event of allEvents) {
+        if (state.seenIds.has(event.eventId) || state.queuedIds.has(event.eventId)) {
+          continue;
+        }
+        state.queue.push(event);
+        state.queuedIds.add(event.eventId);
+      }
+
+      if (state.queue.length === 0) {
         return;
       }
 
-      await sendIntentEvents(target, unsent);
-      for (const event of unsent) {
-        recent.set(event.eventId, now);
+      if (state.queue.length >= INTENT_BATCH_SIZE) {
+        await this.flushIntentEvents(target, state);
+        return;
       }
-      this.recentIntentEventIdsByTarget.set(target.hexcoreId, recent);
+
+      if (!state.flushTimer) {
+        state.flushTimer = setTimeout(() => {
+          state.flushTimer = null;
+          void this.flushIntentEvents(target, state);
+        }, INTENT_FLUSH_INTERVAL_MS);
+      }
     } catch {
       // Best effort only — keep Hexdeck local/relay behavior unchanged if Hexcore ingest fails.
     }
   }
 
-  private pruneRecentIntentEventIds(cache: Map<string, number>, now: number): void {
-    const TTL_MS = 15 * 60 * 1000;
+  private getPendingIntentState(hexcoreId: string): PendingIntentFlushState {
+    let state = this.pendingIntentFlushByTarget.get(hexcoreId);
+    if (!state) {
+      state = {
+        queue: [],
+        queuedIds: new Set<string>(),
+        seenIds: new Map<string, number>(),
+        flushTimer: null,
+        flushInFlight: null,
+      };
+      this.pendingIntentFlushByTarget.set(hexcoreId, state);
+    }
+    return state;
+  }
+
+  private async flushIntentEvents(target: RelayTarget, state: PendingIntentFlushState): Promise<void> {
+    if (state.flushInFlight) {
+      return state.flushInFlight;
+    }
+
+    state.flushInFlight = this.doFlushIntentEvents(target, state);
+    try {
+      await state.flushInFlight;
+    } finally {
+      state.flushInFlight = null;
+    }
+  }
+
+  private async doFlushIntentEvents(target: RelayTarget, state: PendingIntentFlushState): Promise<void> {
+    while (state.queue.length > 0) {
+      const batch = state.queue.slice(0, INTENT_BATCH_SIZE);
+      await sendIntentEvents(target, batch);
+
+      const now = Date.now();
+      for (const event of batch) {
+        state.queuedIds.delete(event.eventId);
+        state.seenIds.set(event.eventId, now);
+      }
+      state.queue.splice(0, batch.length);
+      this.pruneSeenIntentEventIds(state.seenIds, now);
+    }
+  }
+
+  private pruneSeenIntentEventIds(cache: Map<string, number>, now: number): void {
     for (const [eventId, seenAt] of cache) {
-      if (now - seenAt > TTL_MS) {
+      if (now - seenAt > SEEN_EVENT_TTL_MS) {
         cache.delete(eventId);
       }
     }
