@@ -36,6 +36,43 @@ packages/
 └── cli/            # CLI tool (bundles server + dashboard)
 ```
 
+## Menubar development
+
+The `packages/menubar` package is a [Tauri](https://tauri.app/) app (Rust + React). It has additional requirements beyond the TypeScript packages.
+
+### Prerequisites
+
+**Rust** (for the Tauri backend):
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+```
+
+**Bun** (to compile the standalone server binary):
+```bash
+curl -fsSL https://bun.sh/install | bash
+source ~/.bun/env
+```
+
+### Staging resources
+
+Before running `cargo check` or `npm run dev` in `packages/menubar`, the Tauri build system requires two pre-built artifacts staged into `src-tauri/`:
+- `binaries/hexdeck-server` — the standalone server binary
+- `dashboard/` — the Next.js static export
+
+Run this once (and again after changes to `packages/server` or `packages/local`):
+
+```bash
+make prepare-menubar
+```
+
+### Running in development
+
+```bash
+cd packages/menubar
+npm run dev   # starts Vite + Tauri dev window
+```
+
 ## Submitting Changes
 
 1. Fork the repo and create a branch from `main`

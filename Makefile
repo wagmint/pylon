@@ -16,6 +16,7 @@ help:
 	@echo "  make status         - Show Hexdeck server status"
 	@echo "  make install        - Install all dependencies"
 	@echo "  make build          - Build frontend"
+	@echo "  make prepare-menubar  - Stage resources for menubar Tauri build/dev"
 	@echo "  make dashboard-version [LEVEL=patch|minor|major] - Bump @hexdeck/dashboard-ui version"
 	@echo "  make cli-version [LEVEL=patch|minor|major]       - Bump @hexdeck/cli version"
 	@echo "  make checkpoint NOTE='my note' - Create a checkpoint"
@@ -63,6 +64,37 @@ checkpoints:
 .PHONY: parse
 parse:
 	cd packages/server && $(NPX) tsx src/cli/parse.ts $(ARGS)
+
+# Menubar (Tauri) dev setup
+.PHONY: prepare-menubar
+prepare-menubar:
+	@echo "→ Checking dependencies..."
+	@command -v bun >/dev/null 2>&1 || { \
+		echo ""; \
+		echo "  ✗ bun not found. Install it first:"; \
+		echo "    curl -fsSL https://bun.sh/install | bash"; \
+		echo ""; \
+		exit 1; \
+	}
+	@command -v cargo >/dev/null 2>&1 || { \
+		echo ""; \
+		echo "  ✗ cargo not found. Install Rust first:"; \
+		echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
+		echo "    then: source ~/.cargo/env"; \
+		echo ""; \
+		exit 1; \
+	}
+	@echo "→ Building server binary..."
+	@cd packages/server && bun build src/standalone.ts --compile --target=bun-darwin-arm64 --outfile dist/hexdeck-server
+	@echo "→ Building dashboard static export..."
+	@$(NPM) run build --workspace=packages/dashboard-ui
+	@$(NPM) run build --workspace=packages/local
+	@echo "→ Staging resources into src-tauri/..."
+	@mkdir -p packages/menubar/src-tauri/binaries
+	@cp packages/server/dist/hexdeck-server packages/menubar/src-tauri/binaries/hexdeck-server
+	@cp -r packages/local/out packages/menubar/src-tauri/dashboard
+	@echo ""
+	@echo "  ✓ Done. You can now run: cd packages/menubar && npm run dev"
 
 # Install
 .PHONY: install

@@ -1,0 +1,7 @@
+project:
+  commands:
+    install: make install
+    build: make build
+    test: npm run test --workspace=packages/server
+    type_check: cd packages/menubar && npx tsc --noEmit
+    prepare_menubar: make prepare-menubar
