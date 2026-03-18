@@ -23,7 +23,6 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
   const retryDelay = useRef(INITIAL_RETRY_MS);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const esRef = useRef<EventSource | null>(null);
-  const hasTriedEnsure = useRef(false);
   const mountedRef = useRef(true);
   const lastMessageTime = useRef(0);
 
@@ -89,11 +88,8 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
         setLoading(false);
       }
 
-      // On first error, ask the backend to ensure the server is running
-      if (!hasTriedEnsure.current) {
-        hasTriedEnsure.current = true;
-        invoke("ensure_server").catch(() => {});
-      }
+      // Ask the backend to ensure the server is running (Rust side rate-limits spawns)
+      invoke("ensure_server").catch(() => {});
 
       // Schedule reconnect with exponential backoff
       if (mountedRef.current) {

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct WidgetPosition {
@@ -199,14 +199,20 @@ fn kill_server() {
     }
 }
 
-/// Track whether we've already attempted (and failed) to spawn the server.
-/// Prevents repeated spawn attempts when the binary is a placeholder or missing.
-static SPAWN_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+/// Tracks the epoch-seconds of the last spawn attempt.
+/// Prevents rapid re-spawning but allows retry after SPAWN_COOLDOWN_SECS.
+static LAST_SPAWN_ATTEMPT: AtomicU64 = AtomicU64::new(0);
+const SPAWN_COOLDOWN_SECS: u64 = 30;
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
 
 fn ensure_server_running(app: &tauri::AppHandle) {
     if is_server_reachable() {
-        // Server is up — reset the flag so a future kill+restart can re-trigger
-        SPAWN_ATTEMPTED.store(false, Ordering::SeqCst);
         return;
     }
 
@@ -227,10 +233,13 @@ fn ensure_server_running(app: &tauri::AppHandle) {
         }
     }
 
-    // Only attempt to spawn once until a successful connection resets the flag
-    if SPAWN_ATTEMPTED.swap(true, Ordering::SeqCst) {
+    // Rate-limit spawn attempts: skip if last attempt was < SPAWN_COOLDOWN_SECS ago
+    let last = LAST_SPAWN_ATTEMPT.load(Ordering::SeqCst);
+    let now = now_secs();
+    if last > 0 && now.saturating_sub(last) < SPAWN_COOLDOWN_SECS {
         return;
     }
+    LAST_SPAWN_ATTEMPT.store(now, Ordering::SeqCst);
 
     // Spawn and wait for it to become reachable
     if let Err(e) = spawn_server(app) {
@@ -241,7 +250,6 @@ fn ensure_server_running(app: &tauri::AppHandle) {
     for _ in 0..10 {
         std::thread::sleep(Duration::from_millis(500));
         if is_server_reachable() {
-            SPAWN_ATTEMPTED.store(false, Ordering::SeqCst);
             return;
         }
     }
