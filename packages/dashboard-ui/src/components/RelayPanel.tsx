@@ -204,6 +204,14 @@ function TargetCard({
     connected: "bg-dash-green",
     connecting: "bg-dash-yellow animate-dash-pulse",
     disconnected: "bg-dash-text-muted",
+    auth_expired: "bg-dash-red",
+  }[target.status];
+
+  const statusLabel = {
+    connected: "connected",
+    connecting: "connecting",
+    disconnected: "disconnected",
+    auth_expired: "reconnect required",
   }[target.status];
 
   return (
@@ -218,7 +226,9 @@ function TargetCard({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[9px] text-dash-text-muted">{target.status}</span>
+          <span className={`text-[9px] ${target.status === "auth_expired" ? "text-dash-red" : "text-dash-text-muted"}`}>
+            {statusLabel}
+          </span>
           <button
             onClick={() => onRemove(target.hexcoreId)}
             className="text-[9px] text-dash-red/60 hover:text-dash-red transition-colors"

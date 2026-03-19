@@ -14,7 +14,7 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 const PROACTIVE_REFRESH_MS = 12 * 60 * 1000; // refresh token at 12min (access token TTL is 15min)
 
-export type RelayConnectionStatus = "connected" | "connecting" | "disconnected";
+export type RelayConnectionStatus = "connected" | "connecting" | "disconnected" | "auth_expired";
 
 /** Callback to persist refreshed token back to config */
 export type OnTokenRefreshed = (hexcoreId: string, newToken: string) => void;
@@ -51,6 +51,7 @@ export class RelayConnection {
   private lastStateJson = "";
   private intentionalClose = false;
   private refreshing = false;
+  private authExpired = false;
 
   constructor(
     hexcoreId: string,
@@ -73,6 +74,7 @@ export class RelayConnection {
   }
 
   get status(): RelayConnectionStatus {
+    if (this.authExpired) return "auth_expired";
     if (this.intentionalClose) return "disconnected";
     if (this.authenticated && this.ws?.readyState === WebSocket.OPEN) return "connected";
     return "connecting";
@@ -90,6 +92,7 @@ export class RelayConnection {
 
   connect(): void {
     this.intentionalClose = false;
+    this.authExpired = false;
     this.doConnect();
   }
 
@@ -119,7 +122,7 @@ export class RelayConnection {
 
   private doConnect(): void {
     this.cleanup();
-    if (this.intentionalClose) return;
+    if (this.intentionalClose || this.authExpired) return;
 
     try {
       this.ws = new WebSocket(this.wsUrl);
@@ -214,6 +217,11 @@ export class RelayConnection {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          console.error(`[relay] Refresh token expired for ${this.hexcoreId}; re-auth required`);
+          this.enterAuthExpiredState();
+          return;
+        }
         console.error(`[relay] Token refresh failed for ${this.hexcoreId}: ${res.status}`);
         this.scheduleReconnect();
         return;
@@ -262,7 +270,7 @@ export class RelayConnection {
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalClose) return;
+    if (this.intentionalClose || this.authExpired) return;
 
     const delay = Math.min(
       RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt),
@@ -298,5 +306,10 @@ export class RelayConnection {
     }
     this.authenticated = false;
     this.lastStateJson = "";
+  }
+
+  private enterAuthExpiredState(): void {
+    this.authExpired = true;
+    this.cleanup();
   }
 }
