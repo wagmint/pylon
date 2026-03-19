@@ -38,23 +38,10 @@ const severityStyles: Record<string, { bg: string; border: string; dot: string; 
   },
 };
 
-async function resolveCollision(collisionId: string, action: "acknowledged" | "confirmed") {
-  try {
-    await fetch(`http://localhost:7433/api/collisions/${encodeURIComponent(collisionId)}/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-  } catch {
-    // Non-critical — collision will resolve on next cycle
-  }
-}
-
 function AlertItem({ alert, onDecided }: { alert: HexcoreAlert; onDecided?: (alertId: string) => void }) {
   const style = severityStyles[alert.severity] ?? severityStyles.blue;
   const isBlocked = alert.severity === "blue" && alert.id.startsWith("blocked-");
   const sessionId = isBlocked ? alert.id.slice("blocked-".length) : null;
-  const isCollisionAlert = (alert.severity === "yellow" || alert.severity === "red") && alert.collisionId;
 
   return (
     <div className={`${style.bg} ${style.border} border rounded-lg px-3 py-2`}>
@@ -80,29 +67,6 @@ function AlertItem({ alert, onDecided }: { alert: HexcoreAlert; onDecided?: (ale
             size="xs"
             onDecided={() => onDecided?.(alert.id)}
           />
-        ) : isCollisionAlert ? (
-          <div className="flex gap-1">
-            <button
-              className="text-[10px] px-1.5 py-0.5 rounded bg-dash-green/20 text-dash-green hover:bg-dash-green/30 transition-colors"
-              onClick={() => {
-                resolveCollision(alert.collisionId!, "acknowledged");
-                onDecided?.(alert.id);
-              }}
-            >
-              Resolved
-            </button>
-            {alert.severity === "yellow" && (
-              <button
-                className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                onClick={() => {
-                  resolveCollision(alert.collisionId!, "confirmed");
-                  onDecided?.(alert.id);
-                }}
-              >
-                Not yet
-              </button>
-            )}
-          </div>
         ) : (
           <span className="text-[10px] text-dash-text-muted">
             {timeAgo(alert.timestamp)}

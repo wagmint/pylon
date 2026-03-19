@@ -18,32 +18,6 @@ export function deriveAlerts(state: DashboardState): HexcoreAlert[] {
   const alerts: HexcoreAlert[] = [];
   const now = Date.now();
 
-  // Red/Yellow: cross-operator collision alerts
-  for (const collision of state.collisions) {
-    if (!collision.alertLevel) continue;
-    const agentLabels = collision.agents.map(a => a.label).join(" & ");
-    const fileName = collision.filePath.split("/").pop() ?? collision.filePath;
-    if (collision.alertLevel === "red") {
-      alerts.push({
-        id: `collision-red-${collision.id}`,
-        severity: "red",
-        title: "Conflict detected",
-        detail: `${agentLabels} have conflicting changes on ${fileName}`,
-        timestamp: collision.detectedAt,
-        collisionId: collision.id,
-      });
-    } else {
-      alerts.push({
-        id: `collision-yellow-${collision.id}`,
-        severity: "yellow",
-        title: "File overlap",
-        detail: `${agentLabels} are both editing ${fileName}`,
-        timestamp: collision.detectedAt,
-        collisionId: collision.id,
-      });
-    }
-  }
-
   // Blue: agents waiting on user permission approval
   for (const agent of state.agents) {
     if (agent.isActive && agent.status === "blocked") {

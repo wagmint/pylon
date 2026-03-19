@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } fr
 import { useDashboard } from "@/hooks/useDashboard";
 import { useRelay } from "@/hooks/useRelay";
 import { decideSession } from "@/lib/dashboard-api";
-import type { Collision, DashboardState, RelayStatus, PlanWindow } from "@hexdeck/dashboard-ui";
+import type { DashboardState, RelayStatus, PlanWindow } from "@hexdeck/dashboard-ui";
 import {
   OperatorProvider,
   TopBar,
@@ -12,7 +12,6 @@ import {
   AgentCard,
   WorkstreamNode,
   FeedItem,
-  CollisionDetail,
   PlanDetail,
   RiskPanel,
   RelayPanel,
@@ -25,7 +24,6 @@ export default function DashboardPage() {
   const { state, loading, error, connected } = useDashboard();
   const [relayOpen, setRelayOpen] = useState(false);
   const relay = useRelay(relayOpen);
-  const [selectedCollision, setSelectedCollision] = useState<Collision | null>(null);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [seenEventIds, setSeenEventIds] = useState<Set<string>>(new Set());
   const isFirstRender = useRef(true);
@@ -233,7 +231,7 @@ export default function DashboardPage() {
 
   if (!state) return null;
 
-  const { operators, agents, workstreams, collisions, localPlanCollisions, feed, summary } = state;
+  const { operators, agents, workstreams, feed, summary } = state;
 
   // Empty state: Hexdeck is running but no sessions found
   const isEmpty = workstreams.length === 0 && agents.length === 0 && feed.length === 0;
@@ -283,9 +281,6 @@ export default function DashboardPage() {
   const filteredAgents = isFiltered
     ? heldRiskAgents.filter(a => a.projectPath === selectedProjectPath)
     : heldRiskAgents;
-  const filteredCollisions = isFiltered
-    ? collisions.filter(c => c.agents.some(a => a.projectPath === selectedProjectPath))
-    : collisions;
   const selectedName = isFiltered
     ? workstreams.find(ws => ws.projectPath === selectedProjectPath)?.name
     : null;
@@ -376,16 +371,6 @@ export default function DashboardPage() {
                     key={event.id}
                     event={event}
                     isNew={!isFirstRender.current && !seenEventIds.has(event.id)}
-                    onClick={
-                      event.collisionId
-                        ? () => {
-                            const col = filteredCollisions.find(
-                              (c) => c.id === event.collisionId
-                            );
-                            if (col) setSelectedCollision(col);
-                          }
-                        : undefined
-                    }
                     onDecide={handleDecide}
                   />
                 ))
@@ -404,16 +389,12 @@ export default function DashboardPage() {
               <span className="block w-8 border-t border-dash-text-muted/40" />
               <span className="block w-8 border-t border-dash-text-muted/40" />
             </div>
-            {selectedCollision ? (
-              <CollisionDetail collision={selectedCollision} onDismiss={() => setSelectedCollision(null)} />
-            ) : (
-              <PlanDetail
-                workstreams={filteredWorkstreams}
-                localPlanCollisions={localPlanCollisions}
-                planWindow={planWindow}
-                onPlanWindowChange={setPlanWindow}
-              />
-            )}
+            <PlanDetail
+              workstreams={filteredWorkstreams}
+              localPlanCollisions={[]}
+              planWindow={planWindow}
+              onPlanWindowChange={setPlanWindow}
+            />
           </div>
         </div>
 

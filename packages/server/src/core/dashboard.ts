@@ -7,9 +7,8 @@ import { parseSessionFile, parseSystemLines } from "../parser/jsonl.js";
 import { parseCodexSessionFile } from "../parser/codex.js";
 import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
-import { detectCollisions, getUncommittedFiles } from "./collisions.js";
+import { getUncommittedFiles } from "./collisions.js";
 import { buildFeed } from "./feed.js";
-import { detectLocalPlanCollisions } from "./plan-collisions.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
@@ -21,17 +20,6 @@ import type {
   Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
   SessionPlan, PlanStatus, PlanTask, TokenUsage, DraftingActivity, IntentTaskView,
 } from "../types/index.js";
-
-// ─── Relay collision alerts (from cross-operator detection via relay) ────────
-
-import type { Collision } from "../types/index.js";
-
-let relayCollisionAlerts: Collision[] = [];
-
-/** Called by server to inject cross-operator collision alerts from relay merged_state. */
-export function setRelayCollisionAlerts(collisions: Collision[]): void {
-  relayCollisionAlerts = collisions;
-}
 
 // ─── In-memory parse cache ──────────────────────────────────────────────────
 
@@ -1011,16 +999,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     ...[...historicalSessions.keys()],
   ]);
 
-  // 5. Detect collisions (only between currently active sessions)
-  const activeParsed = parsedSessions.filter(p => activeSessionIds.has(p.session.id));
-  const localCollisions = detectCollisions(activeParsed, labelMap, sessionOperatorMap);
-
-  // Merge relay collision alerts (cross-operator from relay merged_state)
-  const existingIds = new Set(localCollisions.map(c => c.id));
-  const mergedRelayCollisions = relayCollisionAlerts.filter(c => !existingIds.has(c.id));
-  const collisions = [...localCollisions, ...mergedRelayCollisions];
-
-  const collisionFileSet = new Set(collisions.flatMap(c => c.agents.map(a => a.sessionId)));
+  const collisionSessionIds = new Set<string>();
 
   const sessionPlansMap = new Map<string, SessionPlan[]>();
   for (const parsed of parsedSessions) {
@@ -1046,7 +1025,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     const label = labelMap.get(parsed.session.id) ?? parsed.session.id.slice(0, 8);
     const isActive = activeSessionIds.has(parsed.session.id);
     const isCodexAgent = codexSessionIds.has(parsed.session.id);
-    const status = determineAgentStatus(parsed, isActive, collisionFileSet, isCodexAgent);
+    const status = determineAgentStatus(parsed, isActive, collisionSessionIds, isCodexAgent);
 
     const lastTurn = parsed.turns[parsed.turns.length - 1];
     const currentTask = lastTurn?.summary ?? "idle";
@@ -1317,7 +1296,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   });
 
   // 8. Build feed
-  const feed = buildFeed(parsedSessions, collisions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds);
+  const feed = buildFeed(parsedSessions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds);
 
   // 9. Build operators — set status to "online" if any agents are active
   const operatorActiveSet = new Set<string>();
@@ -1344,8 +1323,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   const summary: DashboardSummary = {
     totalAgents: activeAgents.length,
     activeAgents: activeAgents.length,
-    totalCollisions: collisions.length,
-    criticalCollisions: collisions.filter(c => c.severity === "critical").length,
+    totalCollisions: 0,
+    criticalCollisions: 0,
     totalWorkstreams: workstreams.length,
     totalCommits: workstreams.reduce((sum, w) => sum + w.commits, 0),
     totalErrors: workstreams.reduce((sum, w) => sum + w.errors, 0),
@@ -1355,7 +1334,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     totalCost,
   };
 
-  const localPlanCollisions = detectLocalPlanCollisions(activeAgents);
+  const localPlanCollisions: DashboardState["localPlanCollisions"] = [];
 
   // ─── Cache GC: evict entries for sessions no longer in the working set ───
   // Without this, parseCache/codexParseCache/accumulators grow unbounded as
@@ -1375,7 +1354,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   }
 
   return {
-    state: { operators, agents: activeAgents, workstreams, collisions, localPlanCollisions, feed, summary },
+    state: { operators, agents: activeAgents, workstreams, collisions: [], localPlanCollisions, feed, summary },
     parsedSessions,
   };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Agent, AgentStatus, Collision } from "../lib/types";
+import type { Agent, AgentStatus } from "../lib/types";
 import { ClampedText } from "./ClampedText";
 import { DecideButtons } from "./DecideButtons";
 
@@ -26,10 +26,9 @@ function projectName(projectPath: string): string {
 
 interface AgentListProps {
   agents: Agent[];
-  collisions: Collision[];
 }
 
-export function AgentList({ agents, collisions }: AgentListProps) {
+export function AgentList({ agents }: AgentListProps) {
   const activeAgents = agents.filter((a) => a.isActive);
   const inactiveAgents = agents.filter((a) => !a.isActive);
 
@@ -51,7 +50,7 @@ export function AgentList({ agents, collisions }: AgentListProps) {
             Active ({activeAgents.length})
           </span>
           {activeAgents.map((agent) => (
-            <AgentRow key={agent.sessionId} agent={agent} collisions={collisions} isFirstBlocked={agent.sessionId === firstBlockedId} />
+            <AgentRow key={agent.sessionId} agent={agent} isFirstBlocked={agent.sessionId === firstBlockedId} />
           ))}
         </div>
       )}
@@ -62,7 +61,7 @@ export function AgentList({ agents, collisions }: AgentListProps) {
             Inactive ({inactiveAgents.length})
           </span>
           {inactiveAgents.slice(0, 3).map((agent) => (
-            <AgentRow key={agent.sessionId} agent={agent} collisions={collisions} dimmed />
+            <AgentRow key={agent.sessionId} agent={agent} dimmed />
           ))}
         </div>
       )}
@@ -72,16 +71,14 @@ export function AgentList({ agents, collisions }: AgentListProps) {
 
 function AgentRow({
   agent,
-  collisions,
   dimmed = false,
   isFirstBlocked = false,
 }: {
   agent: Agent;
-  collisions: Collision[];
   isFirstBlocked?: boolean;
   dimmed?: boolean;
 }) {
-  const statusNotes = getStatusNotes(agent, collisions);
+  const statusNotes = getStatusNotes(agent);
   const [decidedAction, setDecidedAction] = useState<"approve" | "deny" | null>(null);
 
   useEffect(() => {
@@ -172,7 +169,7 @@ function AgentRow({
 
 const MAX_STATUS_NOTES = 2;
 
-function getStatusNotes(agent: Agent, collisions: Collision[]): Array<{ text: string; className: string }> {
+function getStatusNotes(agent: Agent): Array<{ text: string; className: string }> {
   if (agent.status === "blocked") {
     const items = agent.blockedOn ?? [];
     if (items.length === 0) {
@@ -182,23 +179,6 @@ function getStatusNotes(agent: Agent, collisions: Collision[]): Array<{ text: st
       return [{ text: items[0].description, className: "text-dash-blue" }];
     }
     return [{ text: `${items.length} tools waiting for approval`, className: "text-dash-blue" }];
-  }
-
-  if (agent.status === "conflict") {
-    const ownCollisions = collisions.filter((c) =>
-      c.agents.some((a) => a.sessionId === agent.sessionId),
-    );
-    if (ownCollisions.length === 0) {
-      return [{ text: "File collision detected", className: "text-dash-yellow" }];
-    }
-
-    const uniqueFiles = [...new Set(ownCollisions.map((c) => fileName(c.filePath)))];
-    const first = uniqueFiles[0];
-    const suffix = uniqueFiles.length > 1 ? ` (+${uniqueFiles.length - 1} more)` : "";
-    return [
-      { text: `Collision detected: ${first}${suffix}`, className: "text-dash-text-dim" },
-      { text: `${ownCollisions.length} active collision${ownCollisions.length === 1 ? "" : "s"}`, className: "text-dash-text-dim" },
-    ].slice(0, MAX_STATUS_NOTES);
   }
 
   if (agent.status === "warning") {
@@ -221,9 +201,4 @@ function formatSignal(pattern: string, detail: string): string {
   if (pattern === "stuck") return `Stuck: ${detail}`;
   const name = pattern.replace(/_/g, " ");
   return `${name.charAt(0).toUpperCase()}${name.slice(1)}: ${detail}`;
-}
-
-function fileName(path: string): string {
-  const parts = path.split("/");
-  return parts[parts.length - 1] || path;
 }

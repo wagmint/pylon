@@ -1,4 +1,4 @@
-import type { ParsedSession, Collision, FeedEvent } from "../types/index.js";
+import type { ParsedSession, FeedEvent } from "../types/index.js";
 import { formatIdleDuration } from "./duration.js";
 import { blockedSessions, type BlockedInfo } from "./blocked.js";
 
@@ -9,18 +9,13 @@ const MAX_FEED_SIZE = 200;
 /** Append-only feed log, keyed by event ID */
 const feedLog = new Map<string, FeedEvent>();
 
-/** Currently active collisions, keyed by normalized file path */
-const activeCollisions = new Map<string, { collision: Collision; detectedAt: Date }>();
-
 /**
- * Build a unified feed of events from all sessions and detected collisions.
+ * Build a unified feed of events from all sessions.
  * Maintains an append-only in-memory log with a moving window.
  * Turn-based events are re-derived each cycle (stable IDs prevent duplicates).
- * Collision/resolution events are tracked via diffing against previous state.
  */
 export function buildFeed(
   sessions: ParsedSession[],
-  collisions: Collision[],
   labelMap?: Map<string, string>,
   activeSessionIds?: Set<string>,
   operatorMap?: Map<string, string>,
@@ -261,52 +256,7 @@ export function buildFeed(
     }
   }
 
-  // 2. Diff collisions — detect new and resolved
-  const currentCollisionKeys = new Set<string>();
-
-  for (const collision of collisions) {
-    const key = collision.filePath;
-    currentCollisionKeys.add(key);
-
-    if (!activeCollisions.has(key)) {
-      // New collision detected
-      const detectedAt = new Date();
-      activeCollisions.set(key, { collision, detectedAt });
-
-      const agentLabels = collision.agents.map(a => a.label).join(" & ");
-      addEvent({
-        id: `collision-${key}-${detectedAt.getTime()}`,
-        type: "collision",
-        timestamp: detectedAt,
-        agentLabel: agentLabels,
-        sessionId: collision.agents[0]?.sessionId ?? "",
-        projectPath: collision.agents[0]?.projectPath ?? "",
-        operatorId: collision.agents[0]?.operatorId ?? "self",
-        message: `Collision on ${fileName(key)}: ${agentLabels} both modifying`,
-        collisionId: collision.id,
-      });
-    }
-  }
-
-  // Resolved: was active, no longer in current set
-  for (const [key, data] of activeCollisions) {
-    if (!currentCollisionKeys.has(key)) {
-      const agentLabels = data.collision.agents.map(a => a.label).join(" & ");
-      addEvent({
-        id: `collision-resolved-${key}-${Date.now()}`,
-        type: "collision_resolved",
-        timestamp: new Date(),
-        agentLabel: agentLabels,
-        sessionId: data.collision.agents[0]?.sessionId ?? "",
-        projectPath: data.collision.agents[0]?.projectPath ?? "",
-        operatorId: data.collision.agents[0]?.operatorId ?? "self",
-        message: `Resolved collision on ${fileName(key)}`,
-      });
-      activeCollisions.delete(key);
-    }
-  }
-
-  // 3. Trim to moving window (drop oldest)
+  // 2. Trim to moving window (drop oldest)
   if (feedLog.size > MAX_FEED_SIZE) {
     const sorted = [...feedLog.entries()].sort(
       (a, b) => a[1].timestamp.getTime() - b[1].timestamp.getTime()
@@ -317,7 +267,7 @@ export function buildFeed(
     }
   }
 
-  // 4. Return sorted newest-first
+  // 3. Return sorted newest-first
   return [...feedLog.values()].sort(
     (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
   );
@@ -335,11 +285,6 @@ function addEvent(event: FeedEvent): void {
 function projectName(projectPath: string): string {
   const parts = projectPath.split("/").filter(Boolean);
   return parts[parts.length - 1] || projectPath;
-}
-
-function fileName(filePath: string): string {
-  const parts = filePath.split("/");
-  return parts[parts.length - 1] || filePath;
 }
 
 function extractPlanTitle(markdown: string): string {
