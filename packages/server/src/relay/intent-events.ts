@@ -8,6 +8,7 @@ import type {
   TurnNode,
   Workstream,
 } from "../types/index.js";
+import { computeTurnCost } from "../core/pricing.js";
 
 export type IntentEventSource = "claude" | "codex";
 export type IntentEventType =
@@ -186,6 +187,22 @@ function buildTurnEvents(agent: Agent, parsed: ParsedSession): NormalizedIntentE
 
     const assistantSummary = summarizeAssistantTurn(turn);
     if (assistantSummary) {
+      const assistantPayload: Record<string, unknown> = {
+        turnId,
+        summary: assistantSummary,
+      };
+      if (turn.model) {
+        assistantPayload.model = turn.model;
+      }
+      if (turn.tokenUsage && (turn.tokenUsage.inputTokens > 0 || turn.tokenUsage.outputTokens > 0)) {
+        assistantPayload.tokenUsage = {
+          inputTokens: turn.tokenUsage.inputTokens,
+          outputTokens: turn.tokenUsage.outputTokens,
+          cacheReadInputTokens: turn.tokenUsage.cacheReadInputTokens,
+          cacheCreationInputTokens: turn.tokenUsage.cacheCreationInputTokens,
+        };
+        assistantPayload.cost = computeTurnCost(turn.model, turn.tokenUsage);
+      }
       events.push({
         eventId: makeEventId(["assistant-turn", agent.sessionId, turn.index]),
         schemaVersion: "v1",
@@ -195,10 +212,7 @@ function buildTurnEvents(agent: Agent, parsed: ParsedSession): NormalizedIntentE
         projectPath: agent.projectPath,
         occurredAt,
         eventType: "assistant_turn",
-        payload: {
-          turnId,
-          summary: assistantSummary,
-        },
+        payload: assistantPayload,
         provenance: {
           signalType: "inferred",
           sourceDetail,

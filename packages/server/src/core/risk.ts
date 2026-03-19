@@ -6,7 +6,12 @@ const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 /**
  * Compute risk analytics for a single agent session.
  */
-export function computeAgentRisk(parsed: ParsedSession, errorHistory?: boolean[], accumulatedCost?: number): AgentRisk {
+export function computeAgentRisk(
+  parsed: ParsedSession,
+  errorHistory?: boolean[],
+  accumulatedCost?: number,
+  accumulatedModelCosts?: Map<string, { cost: number; tokens: number; turns: number }>,
+): AgentRisk {
   const { turns, stats } = parsed;
   const totalTurns = turns.length;
 
@@ -71,9 +76,20 @@ export function computeAgentRisk(parsed: ParsedSession, errorHistory?: boolean[]
       modelMap.set(name, entry);
     }
   }
-  // Add accumulated cost from pre-compaction turns
-  if (accumulatedCost != null && accumulatedCost > 0) {
-    sessionCost += accumulatedCost;
+  // Use accumulated cost as floor — only when it exceeds visible turns' cost
+  // (which happens after compaction when older turns are gone).
+  // Without compaction, accumulatedCost ≈ sessionCost so this is a no-op.
+  if (accumulatedCost != null && accumulatedCost > sessionCost) {
+    sessionCost = accumulatedCost;
+    // Merge accumulated model breakdown to preserve pre-compaction model costs
+    if (accumulatedModelCosts) {
+      for (const [model, data] of accumulatedModelCosts) {
+        const existing = modelMap.get(model);
+        if (!existing || data.cost > existing.cost) {
+          modelMap.set(model, { ...data });
+        }
+      }
+    }
   }
 
   const modelBreakdown: ModelCost[] = [...modelMap.entries()]
