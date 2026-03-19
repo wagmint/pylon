@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DashboardState } from "../lib/types";
 
 const SSE_URL = "http://localhost:7433/api/dashboard/stream";
+const SNAPSHOT_URL = "http://localhost:7433/api/dashboard";
 const INITIAL_RETRY_MS = 2000;
 const MAX_RETRY_MS = 10000;
 const STALE_THRESHOLD_MS = 12_000; // 12s = missed 2+ heartbeats (server sends every 5s)
@@ -25,6 +27,7 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
   const esRef = useRef<EventSource | null>(null);
   const mountedRef = useRef(true);
   const lastMessageTime = useRef(0);
+  const refreshInFlight = useRef(false);
 
   /** Close current connection and reconnect immediately (bypass backoff). */
   const reconnectNow = useCallback(() => {
@@ -100,6 +103,36 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
     };
   }, []);
 
+  const refreshNow = useCallback(async () => {
+    if (!mountedRef.current || refreshInFlight.current) return;
+    refreshInFlight.current = true;
+
+    try {
+      const response = await fetch(SNAPSHOT_URL, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Snapshot fetch failed: ${response.status}`);
+      }
+
+      const data: DashboardState = await response.json();
+      if (!mountedRef.current) return;
+
+      lastMessageTime.current = Date.now();
+      setState(data);
+      setError(null);
+      setConnected(true);
+      if (!hasReceivedData.current) {
+        hasReceivedData.current = true;
+        setLoading(false);
+      }
+
+      reconnectNow();
+    } catch {
+      // Snapshot refresh is best-effort; keep existing SSE recovery paths.
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, [reconnectNow]);
+
   useEffect(() => {
     mountedRef.current = true;
     connect();
@@ -130,6 +163,20 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
     };
     window.addEventListener("online", onOnline);
 
+    let unlistenFocus: (() => void) | undefined;
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          void refreshNow();
+        }
+      })
+      .then((fn) => {
+        unlistenFocus = fn;
+      })
+      .catch(() => {
+        // Not critical in non-Tauri contexts.
+      });
+
     return () => {
       mountedRef.current = false;
       if (esRef.current) {
@@ -143,8 +190,9 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
       clearInterval(stalenessInterval);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
+      unlistenFocus?.();
     };
-  }, [connect, reconnectNow]);
+  }, [connect, reconnectNow, refreshNow]);
 
   return { state, loading, error, connected };
 }
