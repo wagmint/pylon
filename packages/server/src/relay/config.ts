@@ -50,13 +50,14 @@ export function saveRelayConfig(config: RelayConfig): void {
   const diskConfig: DiskRelayConfig = {
     targets: config.targets.map((target) => {
       const encryptedToken = encryptSecret(target.token);
-      const encryptedRefreshToken = encryptSecret(target.refreshToken);
+      const encryptedRelayClientSecret = encryptSecret(target.relayClientSecret);
       return {
         hexcoreId: target.hexcoreId,
         hexcoreName: target.hexcoreName,
         wsUrl: target.wsUrl,
         tokenEnc: encryptedToken,
-        refreshTokenEnc: encryptedRefreshToken,
+        relayClientId: target.relayClientId,
+        relayClientSecretEnc: encryptedRelayClientSecret,
         projects: target.projects,
         addedAt: target.addedAt,
       };
@@ -82,9 +83,10 @@ interface DiskRelayTarget {
   hexcoreName?: string;
   wsUrl: string;
   token?: string;
-  refreshToken?: string;
+  relayClientId?: string;
+  relayClientSecret?: string;
   tokenEnc?: string;
-  refreshTokenEnc?: string;
+  relayClientSecretEnc?: string;
   projects?: string[];
   addedAt?: string;
 }
@@ -111,15 +113,16 @@ function normalizeTarget(raw: unknown): RelayTarget | null {
   if (!isValidTarget(raw)) return null;
 
   const token = raw.tokenEnc ? decryptSecret(raw.tokenEnc) : raw.token;
-  const refreshToken = raw.refreshTokenEnc ? decryptSecret(raw.refreshTokenEnc) : raw.refreshToken;
-  if (!token || !refreshToken) return null;
+  const relayClientSecret = raw.relayClientSecretEnc ? decryptSecret(raw.relayClientSecretEnc) : raw.relayClientSecret;
+  if (!token || !raw.relayClientId || !relayClientSecret) return null;
 
   return {
     hexcoreId: raw.hexcoreId,
     hexcoreName: typeof raw.hexcoreName === "string" ? raw.hexcoreName : "Unnamed Relay",
     wsUrl: raw.wsUrl,
     token,
-    refreshToken,
+    relayClientId: raw.relayClientId,
+    relayClientSecret,
     projects: Array.isArray(raw.projects) ? raw.projects.filter((p): p is string => typeof p === "string") : [],
     addedAt: typeof raw.addedAt === "string" ? raw.addedAt : new Date().toISOString(),
   };
@@ -128,11 +131,12 @@ function normalizeTarget(raw: unknown): RelayTarget | null {
 function isValidTarget(t: unknown): t is DiskRelayTarget {
   if (!t || typeof t !== "object") return false;
   const o = t as Record<string, unknown>;
-  const hasPlainToken = typeof o.token === "string" && typeof o.refreshToken === "string";
-  const hasEncryptedToken = typeof o.tokenEnc === "string" && typeof o.refreshTokenEnc === "string";
+  const hasPlainToken = typeof o.token === "string" && typeof o.relayClientSecret === "string";
+  const hasEncryptedToken = typeof o.tokenEnc === "string" && typeof o.relayClientSecretEnc === "string";
   return (
     typeof o.hexcoreId === "string" &&
     typeof o.wsUrl === "string" &&
+    typeof o.relayClientId === "string" &&
     (hasPlainToken || hasEncryptedToken)
   );
 }

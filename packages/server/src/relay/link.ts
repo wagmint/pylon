@@ -13,7 +13,8 @@ export interface ExchangedRelayCredentials {
   hexcoreName: string;
   wsUrl: string;
   token: string;
-  refreshToken: string;
+  relayClientId: string;
+  relayClientSecret: string;
 }
 
 /**
@@ -53,7 +54,8 @@ interface ConnectExchangeApiResponse {
   message: string;
   data?: {
     accessToken?: string;
-    refreshToken?: string;
+    relayClientId?: string;
+    relayClientSecret?: string;
   };
 }
 
@@ -97,8 +99,9 @@ export async function exchangeConnectLink(parsed: ParsedConnectLink): Promise<Ex
   }
 
   const token = body.data?.accessToken;
-  const refreshToken = body.data?.refreshToken;
-  if (!token || !refreshToken) {
+  const relayClientId = body.data?.relayClientId;
+  const relayClientSecret = body.data?.relayClientSecret;
+  if (!token || !relayClientId || !relayClientSecret) {
     throw new Error("Connect exchange returned invalid credentials.");
   }
 
@@ -107,7 +110,8 @@ export async function exchangeConnectLink(parsed: ParsedConnectLink): Promise<Ex
     hexcoreName: parsed.hexcoreName,
     wsUrl: parsed.wsUrl,
     token,
-    refreshToken,
+    relayClientId,
+    relayClientSecret,
   };
 }
 

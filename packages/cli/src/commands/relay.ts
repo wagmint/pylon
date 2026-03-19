@@ -48,7 +48,7 @@ async function connectRelay(link: string): Promise<void> {
     process.exit(1);
   }
 
-  const { hexcoreId, hexcoreName, wsUrl, token, refreshToken } = creds;
+  const { hexcoreId, hexcoreName, wsUrl, token, relayClientId, relayClientSecret } = creds;
   const config = loadRelayConfig();
 
   // Check for existing target with same hexcoreId
@@ -56,7 +56,8 @@ async function connectRelay(link: string): Promise<void> {
   if (existing) {
     // Update token/name
     existing.token = token;
-    existing.refreshToken = refreshToken;
+    existing.relayClientId = relayClientId;
+    existing.relayClientSecret = relayClientSecret;
     existing.hexcoreName = hexcoreName;
     existing.wsUrl = wsUrl;
     saveRelayConfig(config);
@@ -67,7 +68,8 @@ async function connectRelay(link: string): Promise<void> {
       hexcoreName,
       wsUrl,
       token,
-      refreshToken,
+      relayClientId,
+      relayClientSecret,
       projects: [],
       addedAt: new Date().toISOString(),
     };
