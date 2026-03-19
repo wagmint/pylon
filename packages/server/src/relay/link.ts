@@ -67,7 +67,7 @@ export function deriveHttpBaseFromWs(wsUrl: string): string {
 }
 
 /**
- * Exchange a one-time connect code for relay auth tokens.
+ * Exchange a one-time connect code for relay client credentials.
  * Only works with legacy c= connect codes.
  */
 export async function exchangeConnectLink(parsed: ParsedConnectLink): Promise<ExchangedRelayCredentials> {

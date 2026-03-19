@@ -12,7 +12,7 @@ import type {
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
-const PROACTIVE_REFRESH_MS = 12 * 60 * 1000; // refresh token at 12min (access token TTL is 15min)
+const PROACTIVE_REFRESH_MS = 12 * 60 * 1000; // renew access token at 12min (JWT TTL is 15min)
 
 export type RelayConnectionStatus = "connected" | "connecting" | "disconnected" | "auth_expired";
 

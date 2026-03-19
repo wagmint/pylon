@@ -548,7 +548,8 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       };
 
       if (body.data?.status === "completed" && body.data.accessToken && body.data.relayClientId && body.data.relayClientSecret) {
-        // Claim completed — add relay target and clean up
+        // Claim completed — add relay target locally, then acknowledge so Hexcore can
+        // clear the one-time delivery secret material from the claim row.
         relayManager.addTarget({
           hexcoreId: claim.hexcoreId,
           hexcoreName: claim.hexcoreName,
@@ -557,6 +558,10 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
           relayClientId: body.data.relayClientId,
           relayClientSecret: body.data.relayClientSecret,
         });
+        await fetch(`${httpBase}/api/relay-claims/${claimId}/acknowledge`, {
+          method: "POST",
+          headers: { "X-Claim-Secret": claim.claimSecret },
+        }).catch(() => {});
         removeClaim(claimId);
         if (shouldTickerRun()) startTicker();
         return c.json({ status: "completed", hexcoreId: claim.hexcoreId, hexcoreName: claim.hexcoreName });
