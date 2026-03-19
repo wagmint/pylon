@@ -216,7 +216,8 @@ export interface RelayTarget {
   hexcoreName: string;
   wsUrl: string;
   token: string;
-  refreshToken: string;
+  relayClientId: string;
+  relayClientSecret: string;
   projects: string[];
   addedAt: string; // ISO
 }

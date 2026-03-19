@@ -92,12 +92,13 @@ class RelayManager {
   }
 
   /** Add or update a relay target from parsed connect link fields. */
-  addTarget(fields: { hexcoreId: string; hexcoreName: string; wsUrl: string; token: string; refreshToken: string }): void {
+  addTarget(fields: { hexcoreId: string; hexcoreName: string; wsUrl: string; token: string; relayClientId: string; relayClientSecret: string }): void {
     const config = loadRelayConfig();
     const existing = config.targets.find((t) => t.hexcoreId === fields.hexcoreId);
     if (existing) {
       existing.token = fields.token;
-      existing.refreshToken = fields.refreshToken;
+      existing.relayClientId = fields.relayClientId;
+      existing.relayClientSecret = fields.relayClientSecret;
       existing.hexcoreName = fields.hexcoreName;
       existing.wsUrl = fields.wsUrl;
     } else {
@@ -106,7 +107,8 @@ class RelayManager {
         hexcoreName: fields.hexcoreName,
         wsUrl: fields.wsUrl,
         token: fields.token,
-        refreshToken: fields.refreshToken,
+        relayClientId: fields.relayClientId,
+        relayClientSecret: fields.relayClientSecret,
         projects: [],
         addedAt: new Date().toISOString(),
       };
@@ -117,7 +119,7 @@ class RelayManager {
       const conn = this.connections.get(fields.hexcoreId);
       if (conn) {
         conn.updateToken(fields.token);
-        conn.updateRefreshToken(fields.refreshToken);
+        conn.updateRelayClient(fields.relayClientId, fields.relayClientSecret);
         conn.connect();
       }
       this.syncConnections();
@@ -242,7 +244,8 @@ class RelayManager {
           target.hexcoreId,
           target.wsUrl,
           target.token,
-          target.refreshToken,
+          target.relayClientId,
+          target.relayClientSecret,
           this.handleTokenRefreshed.bind(this),
           this.collisionAlertCallback,
         );
@@ -251,7 +254,7 @@ class RelayManager {
       } else {
         // Update tokens in case they changed
         conn.updateToken(target.token);
-        conn.updateRefreshToken(target.refreshToken);
+        conn.updateRelayClient(target.relayClientId, target.relayClientSecret);
       }
     }
   }

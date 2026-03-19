@@ -38,7 +38,8 @@ export class RelayConnection {
 
   private wsUrl: string;
   private token: string;
-  private refreshToken: string;
+  private relayClientId: string;
+  private relayClientSecret: string;
   private onTokenRefreshed: OnTokenRefreshed | null;
   private onCollisionAlerts: OnCollisionAlerts | null;
   private ws: WebSocket | null = null;
@@ -57,14 +58,16 @@ export class RelayConnection {
     hexcoreId: string,
     wsUrl: string,
     token: string,
-    refreshToken: string = "",
+    relayClientId: string = "",
+    relayClientSecret: string = "",
     onTokenRefreshed: OnTokenRefreshed | null = null,
     onCollisionAlerts: OnCollisionAlerts | null = null,
   ) {
     this.hexcoreId = hexcoreId;
     this.wsUrl = wsUrl;
     this.token = token;
-    this.refreshToken = refreshToken;
+    this.relayClientId = relayClientId;
+    this.relayClientSecret = relayClientSecret;
     this.onTokenRefreshed = onTokenRefreshed;
     this.onCollisionAlerts = onCollisionAlerts;
   }
@@ -85,9 +88,10 @@ export class RelayConnection {
     this.token = token;
   }
 
-  /** Update refresh token (e.g. after config change). */
-  updateRefreshToken(refreshToken: string): void {
-    this.refreshToken = refreshToken;
+  /** Update relay client credentials (e.g. after config change). */
+  updateRelayClient(relayClientId: string, relayClientSecret: string): void {
+    this.relayClientId = relayClientId;
+    this.relayClientSecret = relayClientSecret;
   }
 
   connect(): void {
@@ -163,8 +167,8 @@ export class RelayConnection {
             ?? (msg as { message?: string }).message ?? "unknown";
           console.error(`[relay] Auth failed for ${this.hexcoreId}: ${reason}`);
 
-          // Try refreshing for any auth failure when we have a refresh token
-          if (this.refreshToken) {
+          // Try refreshing for any auth failure when we have relay client credentials
+          if (this.relayClientId && this.relayClientSecret) {
             this.tryTokenRefresh();
           } else {
             this.disconnect();
@@ -210,15 +214,18 @@ export class RelayConnection {
         .replace(/^ws:/, "http:")
         .replace(/\/ws\/?$/, "");
 
-      const res = await fetch(`${httpUrl}/api/auth/relay-refresh`, {
+      const res = await fetch(`${httpUrl}/api/auth/relay-client-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: this.refreshToken }),
+        body: JSON.stringify({
+          relayClientId: this.relayClientId,
+          relayClientSecret: this.relayClientSecret,
+        }),
       });
 
       if (!res.ok) {
         if (res.status === 401) {
-          console.error(`[relay] Refresh token expired for ${this.hexcoreId}; re-auth required`);
+          console.error(`[relay] Relay client expired for ${this.hexcoreId}; re-auth required`);
           this.enterAuthExpiredState();
           return;
         }
@@ -254,7 +261,7 @@ export class RelayConnection {
 
   private scheduleProactiveRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    if (!this.refreshToken) return;
+    if (!this.relayClientId || !this.relayClientSecret) return;
 
     this.refreshTimer = setTimeout(async () => {
       if (!this.isConnected || this.intentionalClose) return;

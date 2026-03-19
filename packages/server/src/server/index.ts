@@ -542,18 +542,20 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
         data?: {
           status: string;
           accessToken?: string;
-          refreshToken?: string;
+          relayClientId?: string;
+          relayClientSecret?: string;
         };
       };
 
-      if (body.data?.status === "completed" && body.data.accessToken && body.data.refreshToken) {
+      if (body.data?.status === "completed" && body.data.accessToken && body.data.relayClientId && body.data.relayClientSecret) {
         // Claim completed — add relay target and clean up
         relayManager.addTarget({
           hexcoreId: claim.hexcoreId,
           hexcoreName: claim.hexcoreName,
           wsUrl: claim.wsUrl,
           token: body.data.accessToken,
-          refreshToken: body.data.refreshToken,
+          relayClientId: body.data.relayClientId,
+          relayClientSecret: body.data.relayClientSecret,
         });
         removeClaim(claimId);
         if (shouldTickerRun()) startTicker();
