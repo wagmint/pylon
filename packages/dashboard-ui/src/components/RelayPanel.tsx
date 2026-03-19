@@ -204,7 +204,16 @@ function TargetCard({
     connected: "bg-dash-green",
     connecting: "bg-dash-yellow animate-dash-pulse",
     disconnected: "bg-dash-text-muted",
+    auth_expired: "bg-dash-red",
   }[target.status];
+
+  const statusLabel = {
+    connected: "connected",
+    connecting: "connecting",
+    disconnected: "disconnected",
+    auth_expired: "reconnect required",
+  }[target.status];
+  const isAuthExpired = target.status === "auth_expired";
 
   return (
     <div className="border border-dash-border rounded bg-dash-bg p-3 space-y-2">
@@ -218,7 +227,9 @@ function TargetCard({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[9px] text-dash-text-muted">{target.status}</span>
+          <span className={`text-[9px] ${isAuthExpired ? "text-dash-red" : "text-dash-text-muted"}`}>
+            {statusLabel}
+          </span>
           <button
             onClick={() => onRemove(target.hexcoreId)}
             className="text-[9px] text-dash-red/60 hover:text-dash-red transition-colors"
@@ -228,8 +239,14 @@ function TargetCard({
         </div>
       </div>
 
+      {isAuthExpired && (
+        <div className="pt-1 border-t border-dash-border text-[10px] text-dash-red">
+          This connection expired. Paste a new connect link to restore sync.
+        </div>
+      )}
+
       {/* Project toggles */}
-      {activeProjects.length > 0 && (
+      {!isAuthExpired && activeProjects.length > 0 && (
         <div className="space-y-1 pt-1 border-t border-dash-border">
           {activeProjects.map((proj) => {
             const included = target.projects.includes(proj.projectPath);

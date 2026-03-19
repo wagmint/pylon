@@ -113,7 +113,15 @@ class RelayManager {
       config.targets.push(target);
     }
     saveRelayConfig(config);
-    if (this.started) this.syncConnections();
+    if (this.started) {
+      const conn = this.connections.get(fields.hexcoreId);
+      if (conn) {
+        conn.updateToken(fields.token);
+        conn.updateRefreshToken(fields.refreshToken);
+        conn.connect();
+      }
+      this.syncConnections();
+    }
   }
 
   /** Remove a relay target and disconnect. */

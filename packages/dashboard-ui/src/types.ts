@@ -251,7 +251,7 @@ export interface DashboardState {
 
 // ─── Relay Types ─────────────────────────────────────────────────────────────
 
-export type RelayConnectionStatus = "connected" | "connecting" | "disconnected";
+export type RelayConnectionStatus = "connected" | "connecting" | "disconnected" | "auth_expired";
 
 export interface RelayTargetInfo {
   hexcoreId: string;
