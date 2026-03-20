@@ -13,9 +13,8 @@ export interface RelayAgentRisk {
   spinningSignals: { pattern: string; level: string; detail: string }[];
   overallRisk: "nominal" | "elevated" | "critical";
   errorTrend: boolean[];
-  costPerSession: number;
-  costPerTurn: number;
-  modelBreakdown: { model: string; cost: number; tokenCount: number; turnCount: number }[];
+  modelBreakdown: { model: string; source: "claude" | "codex"; tokenCount: number; turnCount: number }[];
+  sourceBreakdown: { source: "claude" | "codex"; tokenCount: number; turnCount: number }[];
   contextUsagePct: number;
   contextTokens: number;
   avgTurnTimeMs: number | null;

@@ -115,7 +115,7 @@ function RiskCard({ agent }: { agent: Agent }) {
         </div>
       </Tip>
 
-      <Tip text="Total tokens sent and received">
+      <Tip text="Total recorded tokens for this session">
         <div className="flex items-center gap-3 mb-1">
           <span className="text-[9px] text-dash-text-muted">
             {formatTokens(risk.totalTokens)} tokens
@@ -154,30 +154,28 @@ function RiskCard({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {risk.costPerSession > 0 && (
+      {risk.sourceBreakdown.length > 0 && (
         <div className="flex items-center gap-3 mb-1">
-          <Tip text="Estimated total API cost for this session" display="inline">
-            <span className="text-[9px] text-dash-text-muted">
-              ${risk.costPerSession.toFixed(2)} session
-            </span>
-          </Tip>
-          <Tip text="Average estimated API cost per turn" display="inline">
-            <span className="text-[9px] text-dash-text-muted">
-              ~${risk.costPerTurn.toFixed(3)}/turn
-              {risk.peakTurnCost > risk.costPerTurn * 2 && (
-                <span className="text-dash-yellow"> (peak ${risk.peakTurnCost.toFixed(2)})</span>
-              )}
-            </span>
-          </Tip>
+          {risk.sourceBreakdown.map((source) => (
+            <Tip
+              key={source.source}
+              text={`${source.turnCount} turn${source.turnCount !== 1 ? "s" : ""} from ${source.source}`}
+              display="inline"
+            >
+              <span className="text-[9px] text-dash-text-muted">
+                {source.source} {formatTokens(source.tokenCount)}
+              </span>
+            </Tip>
+          ))}
         </div>
       )}
 
       {risk.modelBreakdown.length >= 1 && (
         <div className="flex items-center gap-3 mb-1 flex-wrap">
           {risk.modelBreakdown.map((m) => (
-            <Tip key={m.model} text={`${m.turnCount} turn${m.turnCount !== 1 ? "s" : ""} on ${m.model}`} display="inline">
+            <Tip key={`${m.source}:${m.model}`} text={`${m.turnCount} turn${m.turnCount !== 1 ? "s" : ""} on ${m.model} via ${m.source}`} display="inline">
               <span className="text-[9px] text-dash-text-muted">
-                {m.model} ${m.cost.toFixed(2)}
+                {m.model} {formatTokens(m.tokenCount)} {m.source}
               </span>
             </Tip>
           ))}

@@ -8,11 +8,17 @@ export interface SpinningSignal {
   detail: string;
 }
 
-export interface ModelCost {
-  model: string;       // Short name ("Sonnet 4")
-  cost: number;        // $ for this model
-  tokenCount: number;  // input+output tokens
-  turnCount: number;   // turns using this model
+export interface ModelUsage {
+  model: string;
+  source: "claude" | "codex";
+  tokenCount: number;
+  turnCount: number;
+}
+
+export interface SourceUsage {
+  source: "claude" | "codex";
+  tokenCount: number;
+  turnCount: number;
 }
 
 export interface AgentRisk {
@@ -25,10 +31,8 @@ export interface AgentRisk {
   spinningSignals: SpinningSignal[];
   overallRisk: RiskLevel;
   errorTrend: boolean[];
-  costPerSession: number;       // Total $ for this session
-  costPerTurn: number;          // Average $/turn
-  peakTurnCost: number;         // Max single-turn cost
-  modelBreakdown: ModelCost[];  // Per-model cost split
+  modelBreakdown: ModelUsage[];
+  sourceBreakdown: SourceUsage[];
   contextUsagePct: number;      // 0-100, % of context window used
   contextTokens: number;        // Raw avg input tokens (last 5 turns)
   avgTurnTimeMs: number | null; // avg of turn-to-turn deltas
@@ -305,7 +309,7 @@ export interface DashboardSummary {
   agentsAtRisk: number;
   blockedAgents: number;
   operatorCount: number;
-  totalCost: number;  // Sum across all active agents
+  totalTokens: number;
 }
 
 export interface DashboardState {

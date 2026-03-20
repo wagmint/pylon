@@ -1,7 +1,14 @@
-import type { ParsedSession, TurnNode, AgentRisk, WorkstreamRisk, SpinningSignal, RiskLevel, Agent, ModelCost } from "../types/index.js";
-import { computeTurnCost, shortModelName } from "./pricing.js";
+import type { ParsedSession, TurnNode, AgentRisk, WorkstreamRisk, SpinningSignal, RiskLevel, Agent, ModelUsage, SourceUsage } from "../types/index.js";
+import { shortModelName } from "./pricing.js";
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
+
+function getRecordedTokens(turn: TurnNode): number {
+  return turn.tokenUsage.inputTokens
+    + turn.tokenUsage.outputTokens
+    + turn.tokenUsage.cacheReadInputTokens
+    + turn.tokenUsage.cacheCreationInputTokens;
+}
 
 /**
  * Compute risk analytics for a single agent session.
@@ -9,8 +16,7 @@ const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 export function computeAgentRisk(
   parsed: ParsedSession,
   errorHistory?: boolean[],
-  accumulatedCost?: number,
-  accumulatedModelCosts?: Map<string, { cost: number; tokens: number; turns: number }>,
+  accumulatedModelUsage?: Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>,
 ): AgentRisk {
   const { turns, stats } = parsed;
   const totalTurns = turns.length;
@@ -24,7 +30,10 @@ export function computeAgentRisk(
     : 1; // No errors = perfect
 
   // Total tokens
-  const totalTokens = stats.totalTokenUsage.inputTokens + stats.totalTokenUsage.outputTokens;
+  const totalTokens = stats.totalTokenUsage.inputTokens
+    + stats.totalTokenUsage.outputTokens
+    + stats.totalTokenUsage.cacheReadInputTokens
+    + stats.totalTokenUsage.cacheCreationInputTokens;
 
   // Compaction proximity — heuristic based on recent avg input tokens per turn
   const recentTurns = turns.slice(-5);
@@ -59,44 +68,38 @@ export function computeAgentRisk(
   // Overall risk = worst of all signals
   const overallRisk = computeOverallRisk(errorRate, correctionRatio, compactionProximity, spinningSignals, totalTurns);
 
-  // ─── Cost computation ───────────────────────────────────────────────────
-  const modelMap = new Map<string, { cost: number; tokens: number; turns: number }>();
-  let sessionCost = 0;
-  let peakTurnCost = 0;
+  const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
+  const modelMap = new Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>();
+  const sourceMap = new Map<"claude" | "codex", { tokenCount: number; turnCount: number }>();
   for (const turn of turns) {
-    const cost = computeTurnCost(turn.model, turn.tokenUsage);
-    sessionCost += cost;
-    if (cost > peakTurnCost) peakTurnCost = cost;
+    const tokenCount = getRecordedTokens(turn);
+    const sourceEntry = sourceMap.get(source) ?? { tokenCount: 0, turnCount: 0 };
+    sourceEntry.tokenCount += tokenCount;
+    sourceEntry.turnCount += 1;
+    sourceMap.set(source, sourceEntry);
     if (turn.model) {
       const name = shortModelName(turn.model);
-      const entry = modelMap.get(name) ?? { cost: 0, tokens: 0, turns: 0 };
-      entry.cost += cost;
-      entry.tokens += turn.tokenUsage.inputTokens + turn.tokenUsage.outputTokens;
+      const entry = modelMap.get(name) ?? { source, tokens: 0, turns: 0 };
+      entry.tokens += tokenCount;
       entry.turns += 1;
       modelMap.set(name, entry);
     }
   }
-  // Use accumulated cost as floor — only when it exceeds visible turns' cost
-  // (which happens after compaction when older turns are gone).
-  // Without compaction, accumulatedCost ≈ sessionCost so this is a no-op.
-  if (accumulatedCost != null && accumulatedCost > sessionCost) {
-    sessionCost = accumulatedCost;
-    // Merge accumulated model breakdown to preserve pre-compaction model costs
-    if (accumulatedModelCosts) {
-      for (const [model, data] of accumulatedModelCosts) {
-        const existing = modelMap.get(model);
-        if (!existing || data.cost > existing.cost) {
-          modelMap.set(model, { ...data });
-        }
+  if (accumulatedModelUsage) {
+    for (const [model, data] of accumulatedModelUsage) {
+      const existing = modelMap.get(model);
+      if (!existing || data.tokens > existing.tokens) {
+        modelMap.set(model, { ...data });
       }
     }
   }
 
-  const modelBreakdown: ModelCost[] = [...modelMap.entries()]
-    .sort((a, b) => b[1].cost - a[1].cost)
-    .map(([model, data]) => ({ model, cost: data.cost, tokenCount: data.tokens, turnCount: data.turns }));
-
-  const costPerTurn = totalTurns > 0 ? sessionCost / totalTurns : 0;
+  const modelBreakdown: ModelUsage[] = [...modelMap.entries()]
+    .sort((a, b) => b[1].tokens - a[1].tokens)
+    .map(([model, data]) => ({ model, source: data.source, tokenCount: data.tokens, turnCount: data.turns }));
+  const sourceBreakdown: SourceUsage[] = [...sourceMap.entries()]
+    .sort((a, b) => b[1].tokenCount - a[1].tokenCount)
+    .map(([sourceName, data]) => ({ source: sourceName, tokenCount: data.tokenCount, turnCount: data.turnCount }));
 
   // ─── Time metrics ─────────────────────────────────────────────────────────
   // sessionDurationMs: use session.createdAt as start (survives compaction)
@@ -136,10 +139,8 @@ export function computeAgentRisk(
     spinningSignals,
     overallRisk,
     errorTrend,
-    costPerSession: sessionCost,
-    costPerTurn,
-    peakTurnCost,
     modelBreakdown,
+    sourceBreakdown,
     contextUsagePct,
     contextTokens: currentContextTokens,
     avgTurnTimeMs,

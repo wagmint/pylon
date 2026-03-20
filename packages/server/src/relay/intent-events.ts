@@ -194,7 +194,15 @@ function buildTurnEvents(agent: Agent, parsed: ParsedSession): NormalizedIntentE
       if (turn.model) {
         assistantPayload.model = turn.model;
       }
-      if (turn.tokenUsage && (turn.tokenUsage.inputTokens > 0 || turn.tokenUsage.outputTokens > 0)) {
+      if (
+        turn.tokenUsage
+        && (
+          turn.tokenUsage.inputTokens > 0
+          || turn.tokenUsage.outputTokens > 0
+          || turn.tokenUsage.cacheReadInputTokens > 0
+          || turn.tokenUsage.cacheCreationInputTokens > 0
+        )
+      ) {
         assistantPayload.tokenUsage = {
           inputTokens: turn.tokenUsage.inputTokens,
           outputTokens: turn.tokenUsage.outputTokens,

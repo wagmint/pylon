@@ -93,14 +93,20 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
           {" / "}
           {summary.totalCommits} commit{summary.totalCommits !== 1 ? "s" : ""}
         </span>
-        {summary.totalCost > 0 && (
-          <span className="text-dash-text-muted text-[11px] font-mono" title="Estimated cost (May 2025 rates)">
-            ${summary.totalCost.toFixed(2)} spend
+        {summary.totalTokens > 0 && (
+          <span className="text-dash-text-muted text-[11px] font-mono" title="Recorded tokens from active sessions">
+            {formatTokens(summary.totalTokens)} tokens
           </span>
         )}
       </div>
     </div>
   );
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 function RelayIndicator({

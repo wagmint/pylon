@@ -8,9 +8,15 @@ export interface SpinningSignal {
   detail: string;
 }
 
-export interface ModelCost {
+export interface ModelUsage {
   model: string;
-  cost: number;
+  source: "claude" | "codex";
+  tokenCount: number;
+  turnCount: number;
+}
+
+export interface SourceUsage {
+  source: "claude" | "codex";
   tokenCount: number;
   turnCount: number;
 }
@@ -25,10 +31,8 @@ export interface AgentRisk {
   spinningSignals: SpinningSignal[];
   overallRisk: RiskLevel;
   errorTrend: boolean[];
-  costPerSession: number;
-  costPerTurn: number;
-  peakTurnCost: number;
-  modelBreakdown: ModelCost[];
+  modelBreakdown: ModelUsage[];
+  sourceBreakdown: SourceUsage[];
   contextUsagePct: number;
   contextTokens: number;
   avgTurnTimeMs: number | null;
@@ -236,7 +240,7 @@ export interface DashboardSummary {
   agentsAtRisk: number;
   blockedAgents: number;
   operatorCount: number;
-  totalCost: number;
+  totalTokens: number;
 }
 
 export interface DashboardState {

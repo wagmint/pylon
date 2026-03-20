@@ -12,7 +12,7 @@ import { buildFeed } from "./feed.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
-import { computeTurnCost, shortModelName } from "./pricing.js";
+import { shortModelName } from "./pricing.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
@@ -45,8 +45,7 @@ interface SessionAccumulator {
   primaryModel: string | null;
   plans: SessionPlan[];
   errorHistory: boolean[];
-  totalCost: number;
-  modelCosts: Map<string, { cost: number; tokens: number; turns: number }>;
+  modelUsage: Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>;
 }
 
 const accumulators = new Map<string, SessionAccumulator>();
@@ -232,27 +231,26 @@ function updateAccumulator(sessionId: string, parsed: ParsedSession): void {
   const prev = accumulators.get(sessionId);
   const { stats } = parsed;
 
-  // Compute current cost and per-model costs from visible turns
-  let currentCost = 0;
-  const currentModelCosts = new Map<string, { cost: number; tokens: number; turns: number }>();
+  const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
+  const currentModelUsage = new Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>();
   for (const turn of parsed.turns) {
-    const cost = computeTurnCost(turn.model, turn.tokenUsage);
-    currentCost += cost;
+    const tokenCount = turn.tokenUsage.inputTokens
+      + turn.tokenUsage.outputTokens
+      + turn.tokenUsage.cacheReadInputTokens
+      + turn.tokenUsage.cacheCreationInputTokens;
     if (turn.model) {
       const name = shortModelName(turn.model);
-      const entry = currentModelCosts.get(name) ?? { cost: 0, tokens: 0, turns: 0 };
-      entry.cost += cost;
-      entry.tokens += turn.tokenUsage.inputTokens + turn.tokenUsage.outputTokens;
+      const entry = currentModelUsage.get(name) ?? { source, tokens: 0, turns: 0 };
+      entry.tokens += tokenCount;
       entry.turns += 1;
-      currentModelCosts.set(name, entry);
+      currentModelUsage.set(name, entry);
     }
   }
-  // Merge model costs: keep max per model (survives compaction like totalCost)
-  const mergedModelCosts = new Map(prev?.modelCosts ?? new Map());
-  for (const [model, data] of currentModelCosts) {
-    const prevData = mergedModelCosts.get(model);
-    if (!prevData || data.cost > prevData.cost) {
-      mergedModelCosts.set(model, data);
+  const mergedModelUsage = new Map(prev?.modelUsage ?? new Map());
+  for (const [model, data] of currentModelUsage) {
+    const prevData = mergedModelUsage.get(model);
+    if (!prevData || data.tokens > prevData.tokens) {
+      mergedModelUsage.set(model, data);
     }
   }
 
@@ -269,8 +267,7 @@ function updateAccumulator(sessionId: string, parsed: ParsedSession): void {
     primaryModel: stats.primaryModel ?? prev?.primaryModel ?? null,
     plans: [],
     errorHistory: [],
-    totalCost: Math.max(prev?.totalCost ?? 0, currentCost),
-    modelCosts: mergedModelCosts,
+    modelUsage: mergedModelUsage,
   };
 
   // Plans: keep all plan cycles; fall back to accumulator if current parse yields nothing
@@ -1054,7 +1051,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
 
     // Risk: pass accumulated error history for trend continuity, and accumulated cost/model costs for compaction
     const sessionAcc = accumulators.get(parsed.session.id);
-    const risk = computeAgentRisk(parsed, sessionAcc?.errorHistory, sessionAcc?.totalCost, sessionAcc?.modelCosts);
+    const risk = computeAgentRisk(parsed, sessionAcc?.errorHistory, sessionAcc?.modelUsage);
 
     const blockedOn = status === "blocked"
       ? getBlockedForSession(parsed.session.id).map((info) => {
@@ -1339,7 +1336,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     ));
   const agentsAtRisk = activeAgents.filter(a => a.risk.overallRisk !== "nominal").length;
   const blockedAgentCount = activeAgents.filter(a => a.status === "blocked").length;
-  const totalCost = activeAgents.reduce((sum, a) => sum + a.risk.costPerSession, 0);
+  const totalTokens = activeAgents.reduce((sum, a) => sum + a.risk.totalTokens, 0);
   const summary: DashboardSummary = {
     totalAgents: activeAgents.length,
     activeAgents: activeAgents.length,
@@ -1351,7 +1348,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     agentsAtRisk,
     blockedAgents: blockedAgentCount,
     operatorCount: operators.length,
-    totalCost,
+    totalTokens,
   };
 
   const localPlanCollisions: DashboardState["localPlanCollisions"] = [];

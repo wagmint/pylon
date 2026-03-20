@@ -2,7 +2,8 @@
 export type {
   RiskLevel,
   SpinningSignal,
-  ModelCost,
+  ModelUsage,
+  SourceUsage,
   AgentRisk,
   WorkstreamRisk,
   IntentEvidence,
