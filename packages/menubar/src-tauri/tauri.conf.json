@@ -36,7 +36,8 @@
         "skipTaskbar": true,
         "alwaysOnTop": true,
         "visible": true,
-        "focus": false
+        "focus": false,
+        "backgroundThrottling": "disabled"
       },
       {
         "label": "onboarding",
