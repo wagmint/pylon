@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/tauri-conf-schema.json",
   "productName": "Hexdeck",
-  "version": "0.5.28",
+  "version": "0.5.29",
   "identifier": "dev.hexdeck.menubar",
   "build": {
     "frontendDist": "../dist",

@@ -70,6 +70,8 @@ function RiskCard({ agent }: { agent: Agent }) {
   const slug = sessionId.slice(0, 8);
   const stallSignal = risk.spinningSignals.find((s) => s.pattern === "stalled" || s.pattern === "idle");
   const otherSignals = risk.spinningSignals.filter((s) => s.pattern !== "stalled" && s.pattern !== "idle");
+  const sourceBreakdown = risk.sourceBreakdown ?? [];
+  const modelBreakdown = risk.modelBreakdown ?? [];
 
   return (
     <div className="px-3.5 py-2.5 border-b border-dash-border">
@@ -154,9 +156,9 @@ function RiskCard({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {risk.sourceBreakdown.length > 0 && (
+      {sourceBreakdown.length > 0 && (
         <div className="flex items-center gap-3 mb-1">
-          {risk.sourceBreakdown.map((source) => (
+          {sourceBreakdown.map((source) => (
             <Tip
               key={source.source}
               text={`${source.turnCount} turn${source.turnCount !== 1 ? "s" : ""} from ${source.source}`}
@@ -170,9 +172,9 @@ function RiskCard({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {risk.modelBreakdown.length >= 1 && (
+      {modelBreakdown.length >= 1 && (
         <div className="flex items-center gap-3 mb-1 flex-wrap">
-          {risk.modelBreakdown.map((m) => (
+          {modelBreakdown.map((m) => (
             <Tip key={`${m.source}:${m.model}`} text={`${m.turnCount} turn${m.turnCount !== 1 ? "s" : ""} on ${m.model} via ${m.source}`} display="inline">
               <span className="text-[9px] text-dash-text-muted">
                 {m.model} {formatTokens(m.tokenCount)} {m.source}

@@ -1,5 +1,4 @@
 import type { ParsedSession, TurnNode, AgentRisk, WorkstreamRisk, SpinningSignal, RiskLevel, Agent, ModelUsage, SourceUsage } from "../types/index.js";
-import { shortModelName } from "./pricing.js";
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 
@@ -78,11 +77,10 @@ export function computeAgentRisk(
     sourceEntry.turnCount += 1;
     sourceMap.set(source, sourceEntry);
     if (turn.model) {
-      const name = shortModelName(turn.model);
-      const entry = modelMap.get(name) ?? { source, tokens: 0, turns: 0 };
+      const entry = modelMap.get(turn.model) ?? { source, tokens: 0, turns: 0 };
       entry.tokens += tokenCount;
       entry.turns += 1;
-      modelMap.set(name, entry);
+      modelMap.set(turn.model, entry);
     }
   }
   if (accumulatedModelUsage) {

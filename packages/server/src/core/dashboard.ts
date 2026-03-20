@@ -12,7 +12,6 @@ import { buildFeed } from "./feed.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
-import { shortModelName } from "./pricing.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
@@ -239,11 +238,10 @@ function updateAccumulator(sessionId: string, parsed: ParsedSession): void {
       + turn.tokenUsage.cacheReadInputTokens
       + turn.tokenUsage.cacheCreationInputTokens;
     if (turn.model) {
-      const name = shortModelName(turn.model);
-      const entry = currentModelUsage.get(name) ?? { source, tokens: 0, turns: 0 };
+      const entry = currentModelUsage.get(turn.model) ?? { source, tokens: 0, turns: 0 };
       entry.tokens += tokenCount;
       entry.turns += 1;
-      currentModelUsage.set(name, entry);
+      currentModelUsage.set(turn.model, entry);
     }
   }
   const mergedModelUsage = new Map(prev?.modelUsage ?? new Map());
