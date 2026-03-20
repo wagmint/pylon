@@ -8,7 +8,6 @@ import type {
   TurnNode,
   Workstream,
 } from "../types/index.js";
-import { computeTurnCost } from "../core/pricing.js";
 
 export type IntentEventSource = "claude" | "codex";
 export type IntentEventType =
