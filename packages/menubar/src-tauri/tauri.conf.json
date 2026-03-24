@@ -23,7 +23,8 @@
         "skipTaskbar": true,
         "alwaysOnTop": true,
         "visible": false,
-        "focus": false
+        "focus": false,
+        "backgroundThrottling": "disabled"
       },
       {
         "label": "widget",
