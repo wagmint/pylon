@@ -104,6 +104,33 @@ function sanitizeIntentText(text: string | null | undefined): string | null {
   return cleaned;
 }
 
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  // Bearer / token auth headers
+  [/(Bearer\s+)[A-Za-z0-9\-_\.]{8,}/gi, "$1[REDACTED]"],
+  // AWS access key IDs
+  [/\b(AKIA[0-9A-Z]{12,})/g, "[REDACTED_AWS_KEY]"],
+  // AWS secret keys (40 char base64)
+  [/(?<=AWS_SECRET_ACCESS_KEY[=:]\s*["']?)[A-Za-z0-9\/+=]{30,}/g, "[REDACTED]"],
+  // Generic secret/key/token/password env assignments: export VAR=value or VAR=value
+  [/((?:SECRET|TOKEN|PASSWORD|API_KEY|APIKEY|AUTH|CREDENTIALS?|PRIVATE_KEY)[=:]\s*["']?)([^\s"']{4,})/gi, "$1[REDACTED]"],
+  // Connection strings with passwords: postgres://user:pass@host, mysql://user:pass@host
+  [/((?:postgres|mysql|mongodb|redis|amqp|mssql)(?:ql)?:\/\/[^:]+:)[^@]+(@)/gi, "$1[REDACTED]$2"],
+  // -p flag for mysql/psql (e.g. mysql -u root -pMyPassword)
+  [/(-p)([^\s]{4,})/g, "$1[REDACTED]"],
+  // curl -u user:pass
+  [/(-u\s+\S+:)\S+/g, "$1[REDACTED]"],
+  // Authorization header values in curl -H
+  [/(-H\s+["']Authorization:\s*(?:Basic|Digest)\s+)[A-Za-z0-9+\/=]+/gi, "$1[REDACTED]"],
+];
+
+function redactSecrets(text: string): string {
+  let result = text;
+  for (const [pattern, replacement] of SECRET_PATTERNS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -322,9 +349,10 @@ function buildTurnEvents(agent: Agent, parsed: ParsedSession): NormalizedIntentE
       });
     }
 
-    for (const command of turn.commands.map((value) => cleanWhitespace(value)).filter(Boolean)) {
+    for (const rawCommand of turn.commands.map((value) => cleanWhitespace(value)).filter(Boolean)) {
+      const command = redactSecrets(rawCommand);
       events.push({
-        eventId: makeEventId(["command", agent.sessionId, turn.index, hashText(command)]),
+        eventId: makeEventId(["command", agent.sessionId, turn.index, hashText(rawCommand)]),
         schemaVersion: "v1",
         source: agent.agentType,
         operatorId: agent.operatorId,
