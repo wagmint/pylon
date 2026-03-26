@@ -1,3 +1,4 @@
+import { relative } from "path";
 import type { DashboardState, Agent, SessionPlan, DraftingActivity, IntentTaskView } from "../types/index.js";
 import type {
   OperatorState,
@@ -118,8 +119,8 @@ function mapAgent(a: Agent): RelayAgent {
     agentType: a.agentType,
     status: a.status,
     currentTask: a.currentTask,
-    filesChanged: a.filesChanged,
-    uncommittedFiles: a.uncommittedFiles,
+    filesChanged: a.filesChanged.map(f => relative(a.projectPath, f)),
+    uncommittedFiles: a.uncommittedFiles.map(f => relative(a.projectPath, f)),
     projectPath: a.projectPath,
     isActive: a.isActive,
     planStatus: topPlan?.status ?? "none",
