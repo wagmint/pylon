@@ -6,6 +6,7 @@ import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { serve, type ServerType } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
+import { getActiveCodexSessions } from "../discovery/codex.js";
 import { buildDashboardState, buildDashboardSnapshot } from "../core/dashboard.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
@@ -123,7 +124,8 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 
   /** List currently active sessions */
   app.get("/api/sessions/active", (c) => {
-    const sessions = getActiveSessions();
+    const sessions = [...getActiveSessions(), ...getActiveCodexSessions()]
+      .sort((a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime());
     return c.json(
       sessions.map((s) => ({
         id: s.id,
