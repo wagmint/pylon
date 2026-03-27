@@ -119,7 +119,9 @@ function mapAgent(a: Agent): RelayAgent {
     agentType: a.agentType,
     status: a.status,
     currentTask: a.currentTask,
-    filesChanged: a.filesChanged.map(f => relative(a.projectPath, f)),
+    filesChanged: a.filesChanged
+      .map(f => relative(a.projectPath, f))
+      .filter(f => !f.split("/").includes(".claude")),
     uncommittedFiles: a.uncommittedFiles.map(f => relative(a.projectPath, f)),
     projectPath: a.projectPath,
     isActive: a.isActive,
