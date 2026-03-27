@@ -20,13 +20,19 @@ const PRICING_TABLE: Array<[string, ModelPricing]> = [
   ["claude-sonnet-3-5",  { input: 3e-6,  output: 15e-6, cacheRead: 0.3e-6,  cacheCreation: 3.75e-6 }],
   ["claude-haiku-4-5",   { input: 0.8e-6, output: 4e-6, cacheRead: 0.08e-6, cacheCreation: 1e-6 }],
   ["claude-haiku-3-5",   { input: 0.8e-6, output: 4e-6, cacheRead: 0.08e-6, cacheCreation: 1e-6 }],
-  // OpenAI — specific variants before generic prefixes
+  // OpenAI Codex — most-specific first (per openai.com/api/pricing)
+  ["gpt-5.3-codex",      { input: 1.75e-6, output: 14e-6,  cacheRead: 0.175e-6, cacheCreation: 0 }],
+  ["gpt-5.2-codex",      { input: 1.75e-6, output: 14e-6,  cacheRead: 0.175e-6, cacheCreation: 0 }],
+  ["gpt-5.1-codex-mini", { input: 0.25e-6, output: 2e-6,   cacheRead: 0.025e-6, cacheCreation: 0 }],
+  ["gpt-5.1-codex-max",  { input: 1.25e-6, output: 10e-6,  cacheRead: 0.125e-6, cacheCreation: 0 }],
+  ["gpt-5.1-codex",      { input: 1.25e-6, output: 10e-6,  cacheRead: 0.125e-6, cacheCreation: 0 }],
+  ["gpt-5-codex",        { input: 1.25e-6, output: 10e-6,  cacheRead: 0.125e-6, cacheCreation: 0 }],
+  ["codex-mini",         { input: 1.5e-6,  output: 6e-6,   cacheRead: 0.375e-6, cacheCreation: 0 }],
+  // OpenAI non-Codex
   ["gpt-5.4",            { input: 2.5e-6, output: 10e-6,  cacheRead: 0.625e-6, cacheCreation: 0 }],
-  ["gpt-5.3-codex",      { input: 0.75e-6, output: 3e-6,  cacheRead: 0.025e-6, cacheCreation: 0 }],
   ["gpt-5.2",            { input: 2e-6,   output: 8e-6,   cacheRead: 0.5e-6,   cacheCreation: 0 }],
   ["gpt-5.1",            { input: 1e-6,   output: 4e-6,   cacheRead: 0.25e-6,  cacheCreation: 0 }],
   ["gpt-5",              { input: 2e-6,   output: 8e-6,   cacheRead: 0.5e-6,   cacheCreation: 0 }],
-  ["codex-mini",         { input: 1.5e-6, output: 6e-6,   cacheRead: 0.375e-6, cacheCreation: 0 }],
   ["o4-mini",            { input: 1.1e-6, output: 4.4e-6, cacheRead: 0.275e-6, cacheCreation: 0 }],
   ["o3-pro",             { input: 20e-6,  output: 80e-6,  cacheRead: 5e-6,     cacheCreation: 0 }],
   ["o3-mini",            { input: 1.1e-6, output: 4.4e-6, cacheRead: 0.55e-6,  cacheCreation: 0 }],
@@ -81,8 +87,13 @@ export function shortModelName(model: string): string {
   if (lower.startsWith("claude-sonnet")) return "Sonnet";
   if (lower.startsWith("claude-opus")) return "Opus";
   // OpenAI
-  if (lower.startsWith("gpt-5.4")) return "GPT-5.4";
   if (lower.startsWith("gpt-5.3-codex")) return "GPT-5.3 Codex";
+  if (lower.startsWith("gpt-5.2-codex")) return "GPT-5.2 Codex";
+  if (lower.startsWith("gpt-5.1-codex-mini")) return "Codex Mini 5.1";
+  if (lower.startsWith("gpt-5.1-codex-max")) return "Codex Max 5.1";
+  if (lower.startsWith("gpt-5.1-codex")) return "Codex 5.1";
+  if (lower.startsWith("gpt-5-codex")) return "Codex 5";
+  if (lower.startsWith("gpt-5.4")) return "GPT-5.4";
   if (lower.startsWith("gpt-5.2")) return "GPT-5.2";
   if (lower.startsWith("gpt-5.1")) return "GPT-5.1";
   if (lower.startsWith("gpt-5")) return "GPT-5";
