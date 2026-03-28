@@ -10,7 +10,7 @@
   - [x] IMPLEMENT Checkpoint 1: Typography Foundation ✅
   - [x] IMPLEMENT Checkpoint 2: Badge Consistency & ConfidenceBadge Extraction ✅
   - [x] IMPLEMENT Checkpoint 3: Workstream Card Risk Indicators ✅
-  - [ ] Checkpoint 4: HomeView Component
+  - [x] IMPLEMENT Checkpoint 4: HomeView Component ✅
   - [ ] Checkpoint 5: DetailView Component
   - [ ] Checkpoint 6: Page Layout Integration
   - [ ] Checkpoint 7: Final Verification
@@ -24,7 +24,7 @@
 - Install: verified
 
 ## Next Action
-IMPLEMENT: Checkpoint 4 — HomeView Component
+IMPLEMENT: Checkpoint 5 — DetailView Component
 
 ## Blockers
 None.
