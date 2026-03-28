@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { useDashboard } from "@/hooks/useDashboard";
 import { useRelay } from "@/hooks/useRelay";
 import { decideSession } from "@/lib/dashboard-api";
@@ -10,71 +10,21 @@ import {
   TopBar,
   PanelHeader,
   AgentCard,
-  WorkstreamNode,
-  FeedItem,
-  PlanDetail,
-  RiskPanel,
   RelayPanel,
 } from "@hexdeck/dashboard-ui";
 import { GuidedTour } from "@/components/GuidedTour";
+import { HomeView } from "./HomeView";
+import { DetailView } from "./DetailView";
 
 export default function DashboardPage() {
-  type DashboardAgent = DashboardState["agents"][number];
-  const RISK_INACTIVE_HOLD_MS = 30_000;
   const { state, loading, error, connected } = useDashboard();
   const [relayOpen, setRelayOpen] = useState(false);
   const relay = useRelay(relayOpen);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
-  const [seenEventIds, setSeenEventIds] = useState<Set<string>>(new Set());
-  const isFirstRender = useRef(true);
   const [planWindow, setPlanWindow] = useState<PlanWindow>("24h");
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(400);
-  const isDragging = useRef(false);
-  const dragStartY = useRef(0);
-  const dragStartHeight = useRef(0);
   const workstreamItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const previousWorkstreamRects = useRef<Map<string, DOMRect>>(new Map());
   const workstreamsForAnimation = state?.workstreams ?? [];
-  const liveAgentsForRisk = state?.agents ?? [];
-  const riskAgentHold = useRef<Map<string, { agent: DashboardAgent; lastSeenAt: number }>>(new Map());
-  const [riskHoldClock, setRiskHoldClock] = useState(0);
-
-  const makeResizeHandler = useCallback(
-    (setter: (h: number) => void, currentHeight: number, min = 80) =>
-      (e: React.MouseEvent) => {
-        e.preventDefault();
-        isDragging.current = true;
-        dragStartY.current = e.clientY;
-        dragStartHeight.current = currentHeight;
-        const maxH = Math.floor(window.innerHeight * 0.9);
-
-        const onMouseMove = (ev: MouseEvent) => {
-          if (!isDragging.current) return;
-          const delta = dragStartY.current - ev.clientY;
-          setter(Math.min(Math.max(dragStartHeight.current + delta, min), maxH));
-        };
-
-        const onMouseUp = () => {
-          isDragging.current = false;
-          document.removeEventListener("mousemove", onMouseMove);
-          document.removeEventListener("mouseup", onMouseUp);
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-        };
-
-        document.addEventListener("mousemove", onMouseMove);
-        document.addEventListener("mouseup", onMouseUp);
-        document.body.style.cursor = "row-resize";
-        document.body.style.userSelect = "none";
-      },
-    []
-  );
-
-  const onResizeStart = useCallback(
-    (e: React.MouseEvent) => makeResizeHandler(setBottomPanelHeight, bottomPanelHeight)(e),
-    [bottomPanelHeight, makeResizeHandler]
-  );
-
 
   // Approve/deny a blocked agent from the UI
   const handleDecide = useCallback(async (sessionId: string, action: "approve" | "deny") => {
@@ -83,12 +33,12 @@ export default function DashboardPage() {
     } catch { /* server down — ignore */ }
   }, []);
 
-  // Workstream focus filter
-  const toggleWorkstream = useCallback((projectPath: string) => {
+  // Workstream selection
+  const selectWorkstream = useCallback((projectPath: string) => {
     setSelectedProjectPath(prev => prev === projectPath ? null : projectPath);
   }, []);
 
-  // Escape key clears workstream filter
+  // Escape key clears selection
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSelectedProjectPath(null);
@@ -97,22 +47,12 @@ export default function DashboardPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Track seen event IDs for flash-in animation
+  // Clear selection if selected workstream disappears from state
   useEffect(() => {
-    if (!state) return;
-    if (isFirstRender.current) {
-      // On first render, mark all events as seen (no flash)
-      setSeenEventIds(new Set(state.feed.map((e) => e.id)));
-      isFirstRender.current = false;
-      return;
-    }
-    // After first render, only newly arrived events get flash
-    setSeenEventIds((prev) => {
-      const next = new Set(prev);
-      for (const e of state.feed) next.add(e.id);
-      return next;
-    });
-  }, [state]);
+    if (!state || selectedProjectPath === null) return;
+    const exists = state.workstreams.some(ws => ws.projectPath === selectedProjectPath);
+    if (!exists) setSelectedProjectPath(null);
+  }, [state, selectedProjectPath]);
 
   const setWorkstreamItemRef = useCallback(
     (id: string) => (el: HTMLDivElement | null) => {
@@ -154,65 +94,6 @@ export default function DashboardPage() {
     previousWorkstreamRects.current = nextRects;
   }, [workstreamsForAnimation]);
 
-  useEffect(() => {
-    const now = Date.now();
-    const next = new Map(riskAgentHold.current);
-
-    for (const agent of liveAgentsForRisk) {
-      next.set(agent.sessionId, { agent, lastSeenAt: now });
-    }
-    for (const [sessionId, entry] of next) {
-      if (now - entry.lastSeenAt > RISK_INACTIVE_HOLD_MS) {
-        next.delete(sessionId);
-      }
-    }
-
-    riskAgentHold.current = next;
-    setRiskHoldClock(now);
-  }, [liveAgentsForRisk, RISK_INACTIVE_HOLD_MS]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const next = new Map(riskAgentHold.current);
-      let changed = false;
-
-      for (const [sessionId, entry] of next) {
-        if (now - entry.lastSeenAt > RISK_INACTIVE_HOLD_MS) {
-          next.delete(sessionId);
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        riskAgentHold.current = next;
-      }
-      setRiskHoldClock(now);
-    }, 2_000);
-
-    return () => clearInterval(timer);
-  }, [RISK_INACTIVE_HOLD_MS]);
-
-  const heldRiskAgents = useMemo(() => {
-    const now = riskHoldClock || Date.now();
-    const bySessionId = new Map<string, DashboardAgent>();
-
-    // Always include currently-live agents from state.
-    for (const agent of liveAgentsForRisk) {
-      bySessionId.set(agent.sessionId, agent);
-    }
-
-    for (const { agent, lastSeenAt } of riskAgentHold.current.values()) {
-      if (now - lastSeenAt <= RISK_INACTIVE_HOLD_MS) {
-        if (!bySessionId.has(agent.sessionId)) {
-          bySessionId.set(agent.sessionId, agent);
-        }
-      }
-    }
-
-    return [...bySessionId.values()];
-  }, [liveAgentsForRisk, riskHoldClock, RISK_INACTIVE_HOLD_MS]);
-
   if (loading && !state) {
     return (
       <div className="h-screen bg-dash-bg flex items-center justify-center text-dash-text-muted text-sm font-mono">
@@ -231,7 +112,7 @@ export default function DashboardPage() {
 
   if (!state) return null;
 
-  const { operators, agents, workstreams, feed, summary } = state;
+  const { operators, workstreams, agents, feed, summary } = state;
 
   // Empty state: Hexdeck is running but no sessions found
   const isEmpty = workstreams.length === 0 && agents.length === 0 && feed.length === 0;
@@ -271,19 +152,13 @@ export default function DashboardPage() {
         }
       : null;
 
-  const isFiltered = selectedProjectPath !== null;
-  const filteredWorkstreams = isFiltered
-    ? workstreams.filter(ws => ws.projectPath === selectedProjectPath)
-    : workstreams;
-  const filteredFeed = isFiltered
-    ? feed.filter(e => e.projectPath === selectedProjectPath)
-    : feed;
-  const filteredAgents = isFiltered
-    ? heldRiskAgents.filter(a => a.projectPath === selectedProjectPath)
-    : heldRiskAgents;
-  const selectedName = isFiltered
-    ? workstreams.find(ws => ws.projectPath === selectedProjectPath)?.name
+  const selectedWorkstream = selectedProjectPath !== null
+    ? workstreams.find(ws => ws.projectPath === selectedProjectPath) ?? null
     : null;
+
+  const selectedFeed = selectedWorkstream
+    ? feed.filter(e => e.projectPath === selectedProjectPath)
+    : [];
 
   return (
     <OperatorProvider operators={operators}>
@@ -299,23 +174,14 @@ export default function DashboardPage() {
 
       <div
         className="flex-1 grid gap-px bg-dash-border min-h-0"
-        style={{ gridTemplateColumns: "260px 1fr 320px", gridTemplateRows: "1fr" }}
+        style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr", gridTemplateRows: "1fr" }}
       >
-        {/* LEFT PANEL: Workstream / Agent cards */}
+        {/* LEFT PANEL: Workstream cards */}
         <div data-tour="agents" className="relative z-20 bg-dash-bg overflow-y-auto scrollbar-thin">
           <PanelHeader
-            title={isFiltered && selectedName ? `Filtered: ${selectedName}` : "Workstreams"}
-            count={isFiltered ? undefined : `${workstreams.length} project${workstreams.length !== 1 ? "s" : ""}`}
-          >
-            {isFiltered && (
-              <button
-                onClick={() => setSelectedProjectPath(null)}
-                className="bg-dash-surface-3 px-1.5 py-0.5 rounded text-dash-text-dim font-normal tracking-normal normal-case hover:text-dash-text transition-colors"
-              >
-                ✕ clear
-              </button>
-            )}
-          </PanelHeader>
+            title="Workstreams"
+            count={`${workstreams.length} project${workstreams.length !== 1 ? "s" : ""}`}
+          />
           {workstreams.length === 0 ? (
             <div className="px-3.5 py-8 text-center text-dash-text-muted text-xs">
               No active projects
@@ -326,7 +192,7 @@ export default function DashboardPage() {
                 <AgentCard
                   workstream={ws}
                   isSelected={selectedProjectPath === ws.projectPath}
-                  onSelect={toggleWorkstream}
+                  onSelect={selectWorkstream}
                   onDecide={handleDecide}
                 />
               </div>
@@ -334,82 +200,18 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* CENTER PANEL */}
-        <div className="flex flex-col bg-dash-bg min-h-0">
-          {/* Top: Intent Map + Live Feed */}
-          <div className="flex-1 min-h-0 grid gap-px bg-dash-border" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <div data-tour="intent-map" className="bg-dash-bg overflow-y-auto scrollbar-thin">
-              <PanelHeader
-                title="Intent Map"
-                count={`${filteredWorkstreams.length} project${filteredWorkstreams.length !== 1 ? "s" : ""}`}
-              />
-              {filteredWorkstreams.length === 0 ? (
-                <div className="px-3.5 py-8 text-center text-dash-text-muted text-xs">
-                  No workstreams to map
-                </div>
-              ) : (
-                filteredWorkstreams.map((workstream) => (
-                  <WorkstreamNode key={workstream.projectId} workstream={workstream} />
-                ))
-              )}
-            </div>
-
-            <div data-tour="live-feed" className="bg-dash-bg overflow-y-auto scrollbar-thin">
-              <PanelHeader title="Live Feed">
-                <span className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-[8px] font-bold px-1.5 py-0.5 rounded tracking-widest uppercase">
-                  <span className="w-1 h-1 rounded-full bg-dash-green animate-dash-pulse" />
-                  streaming
-                </span>
-              </PanelHeader>
-              {filteredFeed.length === 0 ? (
-                <div className="px-3.5 py-8 text-center text-dash-text-muted text-xs">
-                  No events yet
-                </div>
-              ) : (
-                filteredFeed.map((event) => (
-                  <FeedItem
-                    key={event.id}
-                    event={event}
-                    isNew={!isFirstRender.current && !seenEventIds.has(event.id)}
-                    onDecide={handleDecide}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Bottom: Plan / Collision Detail (resizable) */}
-          <div data-tour="plans" className="shrink-0 bg-dash-surface overflow-hidden" style={{ height: bottomPanelHeight }}>
-            {/* Drag handle */}
-            <div
-              onMouseDown={onResizeStart}
-              className="h-5 cursor-row-resize border-t border-dash-border hover:bg-dash-surface-2 active:bg-dash-blue/20 transition-colors flex flex-col items-center justify-center gap-[3px]"
-            >
-              <span className="block w-8 border-t border-dash-text-muted/40" />
-              <span className="block w-8 border-t border-dash-text-muted/40" />
-              <span className="block w-8 border-t border-dash-text-muted/40" />
-            </div>
-            <PlanDetail
-              workstreams={filteredWorkstreams}
-              localPlanCollisions={[]}
+        {/* RIGHT PANEL: Detail or Home */}
+        <div className="bg-dash-bg min-h-0 overflow-y-auto scrollbar-thin">
+          {selectedWorkstream ? (
+            <DetailView
+              workstream={selectedWorkstream}
+              feed={selectedFeed}
               planWindow={planWindow}
               onPlanWindowChange={setPlanWindow}
+              onDecide={handleDecide}
             />
-          </div>
-        </div>
-
-        {/* RIGHT PANEL: Risk Analytics */}
-        <div data-tour="risk" className="bg-dash-bg overflow-y-auto scrollbar-thin">
-          <PanelHeader
-            title="Risk"
-            count={`${summary.agentsAtRisk} at risk`}
-          />
-          {filteredAgents.length === 0 ? (
-            <div className="px-3.5 py-8 text-center text-dash-text-muted text-xs">
-              No agents to analyze
-            </div>
           ) : (
-            <RiskPanel agents={filteredAgents} />
+            <HomeView state={state} />
           )}
         </div>
       </div>
