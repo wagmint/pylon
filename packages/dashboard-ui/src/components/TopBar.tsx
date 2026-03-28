@@ -42,7 +42,7 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
         <span className="font-normal text-dash-text-dim">control surface</span>
       </div>
       <div className="flex items-center gap-6">
-        <div className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-2xs font-bold px-1.5 py-0.5 rounded tracking-widest uppercase">
+        <div className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-2xs font-semibold px-1.5 py-0.5 rounded tracking-widest uppercase">
           <span className="w-1 h-1 rounded-full bg-dash-green animate-dash-pulse" />
           LIVE
         </div>
@@ -120,7 +120,7 @@ function RelayIndicator({
     return (
       <button
         onClick={onRelayClick}
-        className="text-2xs font-bold tracking-widest uppercase text-dash-text-muted/40 hover:text-dash-text-muted transition-colors cursor-pointer"
+        className="text-2xs font-semibold tracking-widest uppercase text-dash-text-muted/40 hover:text-dash-text-muted transition-colors cursor-pointer"
       >
         RELAY
       </button>

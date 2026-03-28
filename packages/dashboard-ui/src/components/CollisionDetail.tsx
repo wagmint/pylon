@@ -35,16 +35,16 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
         </div>
         <div className="flex items-center gap-2">
           <span
-            className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${
+            className={`text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded ${
               collision.severity === "critical"
-                ? "bg-dash-yellow-dim text-dash-yellow"
+                ? "bg-dash-red-dim text-dash-red"
                 : "bg-dash-yellow-dim text-dash-yellow"
             }`}
           >
             {collision.severity}
           </span>
           {isMultiOperator && collision.isCrossOperator && (
-            <span className="text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded bg-dash-purple/10 text-dash-purple">
+            <span className="text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded bg-dash-purple/10 text-dash-purple">
               CROSS-OPERATOR
             </span>
           )}

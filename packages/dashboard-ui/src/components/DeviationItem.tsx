@@ -21,12 +21,12 @@ export function DeviationItem({ collision }: DeviationItemProps) {
       <div className="flex items-center justify-between mb-0.5">
         <div className="flex items-center gap-1.5">
           <span
-            className={`text-2xs font-bold tracking-widest uppercase px-1 py-px rounded ${typeConfig.className}`}
+            className={`text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded ${typeConfig.className}`}
           >
             {typeConfig.label}
           </span>
           {isMultiOperator && collision.isCrossOperator && (
-            <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded bg-dash-purple/10 text-dash-purple">
+            <span className="text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded bg-dash-purple/10 text-dash-purple">
               CROSS-OP
             </span>
           )}

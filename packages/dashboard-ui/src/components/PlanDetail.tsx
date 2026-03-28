@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { SessionPlan, Workstream, DraftingActivity, IntentTaskView, AgentType, LocalPlanCollision, LocalPlanCollisionType } from "../types";
 import { OperatorTag } from "./OperatorTag";
+import { ConfidenceBadge } from "./ConfidenceBadge";
 import { timeAgo, formatDuration } from "../utils";
 
 export type PlanWindow = "24h" | "3d" | "7d";
@@ -169,11 +170,6 @@ const collisionClass: Record<LocalPlanCollisionType, string> = {
   overlapping_task: "text-dash-blue border-dash-blue/40 bg-dash-blue/10",
 };
 
-const confidenceClass: Record<LocalPlanCollision["confidence"], string> = {
-  high: "text-dash-red border-dash-red/30 bg-dash-red/10",
-  medium: "text-dash-yellow border-dash-yellow/30 bg-dash-yellow/10",
-  low: "text-dash-text border-dash-border bg-dash-surface-2",
-};
 
 function renderCollisionExplanation(collision: LocalPlanCollision): string {
   if (collision.type === "duplicate_plan") {
@@ -275,12 +271,12 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-semibold text-dash-text truncate">{entry.title}</span>
                   {cfg && (
-                    <span className={`text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 ${cfg.bg} ${cfg.color}`}>
+                    <span className={`text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded shrink-0 ${cfg.bg} ${cfg.color}`}>
                       {cfg.label}
                     </span>
                   )}
                   {entry.agentType === "codex" && (
-                    <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-green-dim text-dash-green">
+                    <span className="text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-green-dim text-dash-green">
                       CODEX
                     </span>
                   )}
@@ -289,7 +285,7 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                   <span className="font-semibold text-dash-text-dim">{entry.plan.agentLabel}</span>
                   <OperatorTag operatorId={entry.operatorId} />
                   {!entry.plan.isFromActiveSession && (
-                    <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
+                    <span className="text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
                       PAST SESSION
                     </span>
                   )}
@@ -473,13 +469,13 @@ function PlanMarkdownView({ entry, onBack }: { entry: PlanEntry; onBack: () => v
           <button onClick={onBack} className="text-dash-text-muted hover:text-dash-text text-xs transition-colors">&lsaquo; Plans</button>
           <span className="text-dash-border">|</span>
           <span className="font-display font-semibold text-xs text-dash-text truncate">{entry.title}</span>
-          {cfg && <span className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>}
+          {cfg && <span className={`text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-2xs text-dash-text-dim font-semibold">{entry.plan.agentLabel}</span>
           <OperatorTag operatorId={entry.operatorId} />
           {!entry.plan.isFromActiveSession && (
-            <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
+            <span className="text-2xs font-semibold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
               PAST SESSION
             </span>
           )}
@@ -525,7 +521,7 @@ function PlanVsRealityView({ workstream }: { workstream: Workstream }) {
       <div className="px-3.5 py-2.5 border-b border-dash-border bg-dash-surface">
         <div className="flex items-center gap-2">
           <span className="font-display font-bold text-xs text-dash-text">{workstream.name}</span>
-          <span className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${intentStatusClass[workstream.intentStatus]}`}>{intentStatusLabel[workstream.intentStatus]}</span>
+          <span className={`text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded ${intentStatusClass[workstream.intentStatus]}`}>{intentStatusLabel[workstream.intentStatus]}</span>
         </div>
         <div className="flex flex-wrap items-center gap-3 mt-1 text-2xs text-dash-text-muted">
           <span className="text-dash-green">{workstream.intentCoveragePct}% coverage</span>
@@ -567,18 +563,4 @@ export function PlanDetail({ workstreams, localPlanCollisions = [], planWindow =
   const entries = collectPlans(workstreams, planWindow);
   if (selectedIdx !== null && selectedIdx < entries.length) return <PlanMarkdownView entry={entries[selectedIdx]} onBack={() => setSelectedIdx(null)} />;
   return <PlanOverview entries={entries} localPlanCollisions={localPlanCollisions} onSelect={setSelectedIdx} planWindow={planWindow} onPlanWindowChange={onPlanWindowChange} />;
-}
-function ConfidenceBadge({ confidence }: { confidence: LocalPlanCollision["confidence"] }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-xl border px-2 py-1 text-2xs font-semibold ${confidenceClass[confidence]}`}
-    >
-      <span className="inline-flex items-end gap-[2px] h-3">
-        <span className="w-[3px] h-[6px] rounded-[2px] bg-current opacity-60" />
-        <span className="w-[3px] h-[9px] rounded-[2px] bg-current opacity-75" />
-        <span className="w-[3px] h-[12px] rounded-[2px] bg-current" />
-      </span>
-      <span className="capitalize">{confidence} confidence</span>
-    </span>
-  );
 }

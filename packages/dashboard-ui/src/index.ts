@@ -53,6 +53,7 @@ export { WorkstreamNode } from "./components/WorkstreamNode";
 export { FeedItem } from "./components/FeedItem";
 export { DecideButtons } from "./components/DecideButtons";
 export { ClampedText } from "./components/ClampedText";
+export { ConfidenceBadge } from "./components/ConfidenceBadge";
 export { CollisionDetail } from "./components/CollisionDetail";
 export { PlanDetail } from "./components/PlanDetail";
 export type { PlanWindow } from "./components/PlanDetail";
