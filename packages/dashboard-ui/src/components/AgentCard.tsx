@@ -68,17 +68,17 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
             {workstream.name}
           </span>
           {badge && (
-            <span className={`text-[8px] font-semibold px-1 py-px rounded ${badge.className}`}>
+            <span className={`text-2xs font-semibold px-1 py-px rounded ${badge.className}`}>
               {badge.label}
             </span>
           )}
         </div>
-        <span className="text-[9px] text-dash-text-muted uppercase tracking-wide">
+        <span className="text-2xs text-dash-text-muted uppercase tracking-wide">
           {workstream.agents.length} agent{workstream.agents.length !== 1 ? "s" : ""}
         </span>
       </div>
       {hasTasks && (
-        <div className="text-[9px] text-dash-text-muted mt-0.5">
+        <div className="text-2xs text-dash-text-muted mt-0.5">
           {tasksDone}/{workstream.planTasks.length} tasks done
         </div>
       )}
@@ -94,8 +94,8 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
             >
               <div className="flex items-center gap-1.5">
                 <AgentPip status={agent.status} />
-                <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
-                <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
+                <span className="text-xs text-dash-text-dim shrink-0">{agent.label}</span>
+                <span className={`text-2xs font-semibold px-1 py-px rounded border font-mono shrink-0 ${
                   agent.agentType === "codex"
                     ? "text-dash-green border-dash-green/30 bg-dash-green/10"
                     : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
@@ -106,9 +106,9 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
               </div>
               {(blockedAgent.blockedOn ?? []).map((item, i) => (
                 <div key={item.requestId ?? i}>
-                  <div className="text-[9px] text-dash-blue truncate">{item.description}</div>
+                  <div className="text-2xs text-dash-blue truncate">{item.description}</div>
                   {item.detail && (
-                    <div className="text-[8px] text-dash-text-dim font-mono truncate" title={item.detail}>
+                    <div className="text-2xs text-dash-text-dim font-mono truncate" title={item.detail}>
                       {item.detail}
                     </div>
                   )}
@@ -133,8 +133,8 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
             >
               <div className="flex items-center gap-1.5">
                 <AgentPip status={agent.status} />
-                <span className="text-[10px] text-dash-text-dim shrink-0">{agent.label}</span>
-                <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono shrink-0 ${
+                <span className="text-xs text-dash-text-dim shrink-0">{agent.label}</span>
+                <span className={`text-2xs font-semibold px-1 py-px rounded border font-mono shrink-0 ${
                   agent.agentType === "codex"
                     ? "text-dash-green border-dash-green/30 bg-dash-green/10"
                     : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
@@ -145,7 +145,7 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
               </div>
               {agent.currentTask && (
                 <div className="mt-0.5 pl-5">
-                  <ClampedText text={agent.currentTask} lines={2} className="text-[9px] text-dash-text-dim" />
+                  <ClampedText text={agent.currentTask} lines={2} className="text-2xs text-dash-text-dim" />
                 </div>
               )}
             </div>

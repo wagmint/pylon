@@ -77,15 +77,15 @@ function RiskCard({ agent }: { agent: Agent }) {
     <div className="px-3.5 py-2.5 border-b border-dash-border">
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="text-dash-text font-semibold text-[11px]">{label}</span>
-          <span className={`text-[8px] font-semibold px-1 py-px rounded border font-mono ${
+          <span className="text-dash-text font-semibold text-xs">{label}</span>
+          <span className={`text-2xs font-semibold px-1 py-px rounded border font-mono ${
             agent.agentType === "codex"
               ? "text-dash-green border-dash-green/30 bg-dash-green/10"
               : "text-dash-blue border-dash-blue/30 bg-dash-blue/10"
           }`}>
             {agent.agentType === "codex" ? "codex" : "claude"}
           </span>
-          <span className="text-dash-text-muted text-[9px]">{slug}</span>
+          <span className="text-dash-text-muted text-2xs">{slug}</span>
           <OperatorTag operatorId={agent.operatorId} />
         </div>
         <RiskBadge level={risk.overallRisk} />
@@ -94,36 +94,36 @@ function RiskCard({ agent }: { agent: Agent }) {
       {risk.contextUsagePct > 0 && (
         <Tip text="% of the model's context window used">
           <div className="flex items-center gap-2 mb-1 w-full">
-            <span className="text-[9px] text-dash-text-muted w-16 shrink-0">Context</span>
+            <span className="text-2xs text-dash-text-muted w-16 shrink-0">Context</span>
             <ContextGauge pct={risk.contextUsagePct} />
-            <span className="text-[9px] text-dash-text-dim w-8 text-right">{risk.contextUsagePct}%</span>
+            <span className="text-2xs text-dash-text-dim w-8 text-right">{risk.contextUsagePct}%</span>
           </div>
         </Tip>
       )}
 
       <Tip text="% of turns that hit an error">
         <div className="flex items-center gap-2 mb-1 w-full">
-          <span className="text-[9px] text-dash-text-muted w-16 shrink-0">Err rate</span>
+          <span className="text-2xs text-dash-text-muted w-16 shrink-0">Err rate</span>
           <MiniBar value={risk.errorRate} thresholds={[0.15, 0.35]} />
-          <span className="text-[9px] text-dash-text-dim w-8 text-right">{pct(risk.errorRate)}</span>
+          <span className="text-2xs text-dash-text-dim w-8 text-right">{pct(risk.errorRate)}</span>
         </div>
       </Tip>
 
       <Tip text="% of errors the agent self-corrected">
         <div className="flex items-center gap-2 mb-1 w-full">
-          <span className="text-[9px] text-dash-text-muted w-16 shrink-0">Fixes</span>
+          <span className="text-2xs text-dash-text-muted w-16 shrink-0">Fixes</span>
           <MiniBar value={risk.correctionRatio} thresholds={[0.4, 0.7]} invert />
-          <span className="text-[9px] text-dash-text-dim w-8 text-right">{pct(risk.correctionRatio)}</span>
+          <span className="text-2xs text-dash-text-dim w-8 text-right">{pct(risk.correctionRatio)}</span>
         </div>
       </Tip>
 
       <Tip text="Total recorded tokens for this session">
         <div className="flex items-center gap-3 mb-1">
-          <span className="text-[9px] text-dash-text-muted">
+          <span className="text-2xs text-dash-text-muted">
             {formatTokens(risk.totalTokens)} tokens
           </span>
           {risk.compactions > 0 && (
-            <span className="text-[9px] text-dash-text-muted">
+            <span className="text-2xs text-dash-text-muted">
               {risk.compactions} compaction{risk.compactions !== 1 ? "s" : ""}
             </span>
           )}
@@ -133,19 +133,19 @@ function RiskCard({ agent }: { agent: Agent }) {
       {risk.sessionDurationMs > 0 && (
         <div className="flex items-center gap-3 mb-1">
           <Tip text="Total time since session started" display="inline">
-            <span className="text-[9px] text-dash-text-muted">
+            <span className="text-2xs text-dash-text-muted">
               {formatDuration(risk.sessionDurationMs)} session
             </span>
           </Tip>
           {risk.avgTurnTimeMs != null && (
             <Tip text="Avg time between turns (includes pauses)" display="inline">
-              <span className="text-[9px] text-dash-text-muted">
+              <span className="text-2xs text-dash-text-muted">
                 ~{formatDuration(risk.avgTurnTimeMs)}/turn
               </span>
             </Tip>
           )}
           {stallSignal && (
-            <span className={`text-[9px] font-medium ${
+            <span className={`text-2xs font-medium ${
               stallSignal.level === "critical" ? "text-dash-red" :
               stallSignal.pattern === "stalled" ? "text-dash-yellow" :
               "text-dash-text-muted"
@@ -164,7 +164,7 @@ function RiskCard({ agent }: { agent: Agent }) {
               text={`${source.turnCount} turn${source.turnCount !== 1 ? "s" : ""} from ${source.source}`}
               display="inline"
             >
-              <span className="text-[9px] text-dash-text-muted">
+              <span className="text-2xs text-dash-text-muted">
                 {source.source} {formatTokens(source.tokenCount)}
               </span>
             </Tip>
@@ -176,7 +176,7 @@ function RiskCard({ agent }: { agent: Agent }) {
         <div className="flex items-center gap-3 mb-1 flex-wrap">
           {modelBreakdown.map((m) => (
             <Tip key={`${m.source}:${m.model}`} text={`${m.turnCount} turn${m.turnCount !== 1 ? "s" : ""} on ${m.model} via ${m.source}`} display="inline">
-              <span className="text-[9px] text-dash-text-muted">
+              <span className="text-2xs text-dash-text-muted">
                 {m.model} {formatTokens(m.tokenCount)} {m.source}
               </span>
             </Tip>
@@ -193,7 +193,7 @@ function RiskCard({ agent }: { agent: Agent }) {
       {otherSignals.length > 0 && (
         <div className="space-y-0.5 mb-1">
           {otherSignals.map((sig, i) => (
-            <div key={i} className={`text-[9px] flex items-center gap-1 ${
+            <div key={i} className={`text-2xs flex items-center gap-1 ${
               sig.level === "critical" ? "text-dash-red" : "text-dash-yellow"
             }`}>
               <span>{sig.level === "critical" ? "\u25B2" : "\u25B3"}</span>
@@ -214,7 +214,7 @@ function RiskBadge({ level }: { level: RiskLevel }) {
   };
   const { label, className } = config[level];
   return (
-    <span className={`text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${className}`}>
+    <span className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${className}`}>
       {label}
     </span>
   );

@@ -17,21 +17,21 @@ export function DeviationItem({ collision }: DeviationItemProps) {
     : { label: "OVERLAP", className: "bg-dash-yellow-dim text-dash-yellow" };
 
   return (
-    <div className="px-3.5 py-2 border-b border-dash-border text-[10px]">
+    <div className="px-3.5 py-2 border-b border-dash-border text-xs">
       <div className="flex items-center justify-between mb-0.5">
         <div className="flex items-center gap-1.5">
           <span
-            className={`text-[8px] font-bold tracking-widest uppercase px-1 py-px rounded ${typeConfig.className}`}
+            className={`text-2xs font-bold tracking-widest uppercase px-1 py-px rounded ${typeConfig.className}`}
           >
             {typeConfig.label}
           </span>
           {isMultiOperator && collision.isCrossOperator && (
-            <span className="text-[8px] font-bold tracking-widest uppercase px-1 py-px rounded bg-dash-purple/10 text-dash-purple">
+            <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded bg-dash-purple/10 text-dash-purple">
               CROSS-OP
             </span>
           )}
         </div>
-        <span className="text-[9px] text-dash-text-muted">
+        <span className="text-2xs text-dash-text-muted">
           {timeAgo(collision.detectedAt)}
         </span>
       </div>
@@ -43,7 +43,7 @@ export function DeviationItem({ collision }: DeviationItemProps) {
               {i > 0 && " & "}
               <span className="text-dash-text font-semibold">{agent.label}</span>
               {operator && (
-                <span className="text-[8px] font-mono ml-0.5" style={{ color: operator.color }}>
+                <span className="text-2xs font-mono ml-0.5" style={{ color: operator.color }}>
                   [{operator.name}]
                 </span>
               )}

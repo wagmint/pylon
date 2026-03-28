@@ -8,7 +8,7 @@ interface PanelHeaderProps {
 
 export function PanelHeader({ title, count, children }: PanelHeaderProps) {
   return (
-    <div className="sticky top-0 z-10 flex h-9 items-center justify-between px-3.5 text-[9px] font-semibold tracking-[1.5px] uppercase text-dash-text-muted border-b border-dash-border bg-dash-bg">
+    <div className="sticky top-0 z-10 flex h-9 items-center justify-between px-3.5 text-2xs font-semibold tracking-[1.5px] uppercase text-dash-text-muted border-b border-dash-border bg-dash-bg">
       <span>{title}</span>
       <div className="flex items-center gap-2">
         {count && (

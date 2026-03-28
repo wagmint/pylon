@@ -42,7 +42,7 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
         <span className="font-normal text-dash-text-dim">control surface</span>
       </div>
       <div className="flex items-center gap-6">
-        <div className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-[8px] font-bold px-1.5 py-0.5 rounded tracking-widest uppercase">
+        <div className="inline-flex items-center gap-1 bg-dash-green-dim text-dash-green text-2xs font-bold px-1.5 py-0.5 rounded tracking-widest uppercase">
           <span className="w-1 h-1 rounded-full bg-dash-green animate-dash-pulse" />
           LIVE
         </div>
@@ -55,7 +55,7 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
                   className={`w-1.5 h-1.5 rounded-full ${op.status === "online" ? "animate-dash-pulse" : "opacity-40"}`}
                   style={{ backgroundColor: op.color }}
                 />
-                <span className="text-[9px] text-dash-text-dim font-mono">{op.name}</span>
+                <span className="text-2xs text-dash-text-dim font-mono">{op.name}</span>
               </div>
             ))}
           </div>
@@ -88,13 +88,13 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
             text={`${summary.agentsAtRisk} agent${summary.agentsAtRisk !== 1 ? "s" : ""} at risk`}
           />
         )}
-        <span className="text-dash-text-muted text-[11px] font-mono">
+        <span className="text-dash-text-muted text-xs font-mono">
           {summary.totalWorkstreams} project{summary.totalWorkstreams !== 1 ? "s" : ""}
           {" / "}
           {summary.totalCommits} commit{summary.totalCommits !== 1 ? "s" : ""}
         </span>
         {summary.totalTokens > 0 && (
-          <span className="text-dash-text-muted text-[11px] font-mono" title="Recorded tokens from active sessions">
+          <span className="text-dash-text-muted text-xs font-mono" title="Recorded tokens from active sessions">
             {formatTokens(summary.totalTokens)} tokens
           </span>
         )}
@@ -120,7 +120,7 @@ function RelayIndicator({
     return (
       <button
         onClick={onRelayClick}
-        className="text-[8px] font-bold tracking-widest uppercase text-dash-text-muted/40 hover:text-dash-text-muted transition-colors cursor-pointer"
+        className="text-2xs font-bold tracking-widest uppercase text-dash-text-muted/40 hover:text-dash-text-muted transition-colors cursor-pointer"
       >
         RELAY
       </button>
@@ -140,7 +140,7 @@ function RelayIndicator({
   return (
     <button
       onClick={onRelayClick}
-      className="inline-flex items-center gap-1 text-[11px] font-mono text-dash-text-dim hover:text-dash-text transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 text-xs font-mono text-dash-text-dim hover:text-dash-text transition-colors cursor-pointer"
     >
       <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
       {targetCount} relay
@@ -163,7 +163,7 @@ function StatusItem({ color, text }: { color: "green" | "yellow" | "red" | "blue
       : "animate-dash-pulse";
 
   return (
-    <div className="flex items-center gap-1.5 text-dash-text-dim text-[11px] font-mono">
+    <div className="flex items-center gap-1.5 text-dash-text-dim text-xs font-mono">
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor} ${pulseClass}`} />
       {text}
     </div>

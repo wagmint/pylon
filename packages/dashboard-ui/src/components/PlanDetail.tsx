@@ -99,18 +99,18 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-dash-purple opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-dash-purple" />
         </span>
-        <span className="text-[11px] text-dash-text">
+        <span className="text-xs text-dash-text">
           {activity.approachSummary || "Exploring codebase…"}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-dash-text-dim">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dash-text-dim">
         {elapsed > 0 && <span>Drafting for {formatDuration(elapsed)}</span>}
         <span>{activity.turnCount} turns</span>
       </div>
       {toolEntries.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {toolEntries.map(([tool, count]) => (
-            <span key={tool} className="text-[9px] px-1.5 py-0.5 rounded bg-dash-surface-2 text-dash-text-dim">
+            <span key={tool} className="text-2xs px-1.5 py-0.5 rounded bg-dash-surface-2 text-dash-text-dim">
               {tool}: {count}
             </span>
           ))}
@@ -118,13 +118,13 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
       )}
       {activity.filesExplored.length > 0 && (
         <div>
-          <button onClick={() => setShowFiles(!showFiles)} className="text-[10px] text-dash-text-dim hover:text-dash-text transition-colors">
+          <button onClick={() => setShowFiles(!showFiles)} className="text-xs text-dash-text-dim hover:text-dash-text transition-colors">
             Read {activity.filesExplored.length} files {showFiles ? "▴" : "▾"}
           </button>
           {showFiles && (
             <div className="mt-1 pl-2 space-y-px max-h-32 overflow-y-auto">
               {activity.filesExplored.map((f, i) => (
-                <div key={i} className="text-[9px] text-dash-text-muted truncate">{f}</div>
+                <div key={i} className="text-2xs text-dash-text-muted truncate">{f}</div>
               ))}
             </div>
           )}
@@ -132,13 +132,13 @@ function DraftingActivityPanel({ activity, planTimestamp }: { activity: Drafting
       )}
       {activity.searches.length > 0 && (
         <div>
-          <button onClick={() => setShowSearches(!showSearches)} className="text-[10px] text-dash-text-dim hover:text-dash-text transition-colors">
+          <button onClick={() => setShowSearches(!showSearches)} className="text-xs text-dash-text-dim hover:text-dash-text transition-colors">
             {activity.searches.length} searches {showSearches ? "▴" : "▾"}
           </button>
           {showSearches && (
             <div className="mt-1 pl-2 space-y-px max-h-32 overflow-y-auto">
               {activity.searches.map((s, i) => (
-                <div key={i} className="text-[9px] text-dash-text-muted truncate">{s}</div>
+                <div key={i} className="text-2xs text-dash-text-muted truncate">{s}</div>
               ))}
             </div>
           )}
@@ -206,14 +206,14 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
       <div className="h-full flex flex-col">
         <div className="flex items-center px-3.5 py-2.5 border-b border-dash-border bg-dash-surface">
           <span className="font-display font-bold text-xs text-dash-text">Plans</span>
-          <span className="ml-2 text-[9px] text-dash-text-muted">0 total</span>
+          <span className="ml-2 text-2xs text-dash-text-muted">0 total</span>
           {onPlanWindowChange && (
             <div className="ml-auto flex items-center gap-px">
               {PLAN_WINDOWS.map((w) => (
                 <button
                   key={w}
                   onClick={() => onPlanWindowChange(w)}
-                  className={`text-[8px] px-1.5 py-0.5 rounded transition-colors ${
+                  className={`text-2xs px-1.5 py-0.5 rounded transition-colors ${
                     w === planWindow
                       ? "bg-dash-surface-2 text-dash-text font-semibold"
                       : "text-dash-text-muted hover:text-dash-text-dim"
@@ -234,14 +234,14 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
     <div className="h-full overflow-y-auto">
       <div className="flex items-center px-3.5 py-2.5 border-b border-dash-border bg-dash-surface">
         <span className="font-display font-bold text-xs text-dash-text">Plans</span>
-        <span className="ml-2 text-[9px] text-dash-text-muted">{entries.length} total</span>
+        <span className="ml-2 text-2xs text-dash-text-muted">{entries.length} total</span>
         {onPlanWindowChange && (
           <div className="ml-auto flex items-center gap-px">
             {PLAN_WINDOWS.map((w) => (
               <button
                 key={w}
                 onClick={() => onPlanWindowChange(w)}
-                className={`text-[8px] px-1.5 py-0.5 rounded transition-colors ${
+                className={`text-2xs px-1.5 py-0.5 rounded transition-colors ${
                   w === planWindow
                     ? "bg-dash-surface-2 text-dash-text font-semibold"
                     : "text-dash-text-muted hover:text-dash-text-dim"
@@ -273,23 +273,23 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
               }`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-dash-text truncate">{entry.title}</span>
+                  <span className="text-xs font-semibold text-dash-text truncate">{entry.title}</span>
                   {cfg && (
-                    <span className={`text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 ${cfg.bg} ${cfg.color}`}>
+                    <span className={`text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 ${cfg.bg} ${cfg.color}`}>
                       {cfg.label}
                     </span>
                   )}
                   {entry.agentType === "codex" && (
-                    <span className="text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-green-dim text-dash-green">
+                    <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-green-dim text-dash-green">
                       CODEX
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 text-[9px] text-dash-text-muted">
+                <div className="flex items-center gap-2 mt-0.5 text-2xs text-dash-text-muted">
                   <span className="font-semibold text-dash-text-dim">{entry.plan.agentLabel}</span>
                   <OperatorTag operatorId={entry.operatorId} />
                   {!entry.plan.isFromActiveSession && (
-                    <span className="text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
+                    <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
                       PAST SESSION
                     </span>
                   )}
@@ -312,7 +312,7 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                   )}
                   {relatedCollisions.length > 0 && (
                     <span
-                      className="cursor-pointer inline-flex items-center gap-1 rounded border border-dash-red/50 bg-dash-red/15 px-1.5 py-px text-[9px] font-semibold text-dash-red shadow-[0_0_0_1px_rgba(255,59,92,0.1)] hover:bg-dash-red/25 hover:border-dash-red transition-colors"
+                      className="cursor-pointer inline-flex items-center gap-1 rounded border border-dash-red/50 bg-dash-red/15 px-1.5 py-px text-2xs font-semibold text-dash-red shadow-[0_0_0_1px_rgba(255,59,92,0.1)] hover:bg-dash-red/25 hover:border-dash-red transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         setExpandedCollisionKeys((prev) => {
@@ -324,7 +324,7 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                       }}
                       title="Show colliding plans"
                     >
-                      <span className="text-[10px] leading-none">!</span>
+                      <span className="text-xs leading-none">!</span>
                       <span>{relatedCollisions.length} collision{relatedCollisions.length !== 1 ? "s" : ""} {isCollisionExpanded ? "▴" : "▾"}</span>
                     </span>
                   )}
@@ -332,20 +332,20 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                   <span>{timeAgo(entry.plan.timestamp)}</span>
                 </div>
                 {entry.plan.status === "drafting" && entry.plan.draftingActivity && (
-                  <div className="text-[9px] text-dash-purple mt-0.5 truncate">
+                  <div className="text-2xs text-dash-purple mt-0.5 truncate">
                     {draftingSummaryLine(entry.plan.draftingActivity)}
                   </div>
                 )}
               </div>
-              <span className="text-dash-text-muted text-[10px] shrink-0">&rsaquo;</span>
+              <span className="text-dash-text-muted text-xs shrink-0">&rsaquo;</span>
             </button>
             {isExpanded && entry.plan.tasks.length > 0 && (
               <div className="px-3.5 pb-2 pl-8 space-y-px">
                 {entry.plan.tasks.map((task, ti) => {
                   const icon = taskIcon[task.status] ?? taskIcon.pending;
                   return (
-                    <div key={`${task.id}-${ti}`} className="flex items-center gap-1.5 text-[10px] text-dash-text-dim">
-                      <span className={`text-[9px] w-3 text-center shrink-0 ${icon.className}`}>{icon.char}</span>
+                    <div key={`${task.id}-${ti}`} className="flex items-center gap-1.5 text-xs text-dash-text-dim">
+                      <span className={`text-2xs w-3 text-center shrink-0 ${icon.className}`}>{icon.char}</span>
                       <span className={`truncate ${task.status === "completed" ? "line-through opacity-50" : ""}`}>{task.subject}</span>
                     </div>
                   );
@@ -354,7 +354,7 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
             )}
             {isCollisionExpanded && relatedCollisions.length > 0 && (
               <div className="px-3.5 pb-2 pl-8 space-y-1">
-                <div className="text-[9px] uppercase tracking-[0.18em] text-dash-text-muted">Collides With</div>
+                <div className="text-2xs uppercase tracking-[0.18em] text-dash-text-muted">Collides With</div>
                 {relatedCollisions.map((collision) => {
                   const otherSessionId = collision.sessionIds[0] === entry.sessionId
                     ? collision.sessionIds[1]
@@ -369,14 +369,14 @@ function PlanOverview({ entries, localPlanCollisions, onSelect, planWindow, onPl
                   return (
                     <div key={collision.id} className="rounded border border-dash-border bg-dash-surface px-2 py-1.5">
                       <div className="flex items-center gap-1.5">
-                        <span className={`inline-flex items-center rounded border px-1 py-px text-[8px] font-semibold ${collisionClass[collision.type]}`}>
+                        <span className={`inline-flex items-center rounded border px-1 py-px text-2xs font-semibold ${collisionClass[collision.type]}`}>
                           {collisionLabel[collision.type]}
                         </span>
-                        <span className="text-[10px] font-medium text-dash-text">{otherLabel}</span>
+                        <span className="text-xs font-medium text-dash-text">{otherLabel}</span>
                         <ConfidenceBadge confidence={collision.confidence} />
                       </div>
-                      <div className="mt-1 text-[11px] text-dash-text">{otherTitle}</div>
-                      <div className="mt-1 text-[10px] text-dash-text-dim">
+                      <div className="mt-1 text-xs text-dash-text">{otherTitle}</div>
+                      <div className="mt-1 text-xs text-dash-text-dim">
                         {renderCollisionExplanation(collision)}
                       </div>
                     </div>
@@ -399,7 +399,7 @@ function renderInline(text: string): React.ReactNode {
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     if (match[2]) parts.push(<strong key={match.index} className="font-semibold text-dash-text">{match[2]}</strong>);
-    else if (match[3]) parts.push(<code key={match.index} className="bg-dash-surface-2 text-dash-blue px-1 py-0.5 rounded text-[10px]">{match[3]}</code>);
+    else if (match[3]) parts.push(<code key={match.index} className="bg-dash-surface-2 text-dash-blue px-1 py-0.5 rounded text-xs">{match[3]}</code>);
     else if (match[4]) parts.push(<em key={match.index}>{match[4]}</em>);
     lastIndex = match.index + match[0].length;
   }
@@ -416,7 +416,7 @@ function renderMarkdown(md: string): React.ReactNode[] {
     const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      const sizes = ["text-sm font-bold", "text-xs font-bold", "text-[11px] font-semibold", "text-[11px] font-semibold text-dash-text-dim"];
+      const sizes = ["text-sm font-bold", "text-xs font-bold", "text-xs font-semibold", "text-xs font-semibold text-dash-text-dim"];
       nodes.push(<div key={i} className={`${sizes[level - 1]} mt-2 mb-1`}>{renderInline(headingMatch[2])}</div>);
       i++; continue;
     }
@@ -428,7 +428,7 @@ function renderMarkdown(md: string): React.ReactNode[] {
       const rows = tableLines.slice(2).map(parseRow);
       nodes.push(
         <div key={`table-${i}`} className="overflow-x-auto my-1">
-          <table className="w-full text-[10px] border-collapse">
+          <table className="w-full text-xs border-collapse">
             <thead><tr>{headers.map((h, hi) => <th key={hi} className="text-left px-2 py-1 border-b border-dash-border font-semibold text-dash-text-dim">{renderInline(h)}</th>)}</tr></thead>
             <tbody>{rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci} className="px-2 py-1 border-b border-dash-border text-dash-text-dim">{renderInline(cell)}</td>)}</tr>)}</tbody>
           </table>
@@ -454,7 +454,7 @@ function renderMarkdown(md: string): React.ReactNode[] {
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) { codeLines.push(lines[i]); i++; }
       i++;
-      nodes.push(<pre key={`code-${i}`} className="bg-dash-surface-2 rounded p-2 text-[10px] text-dash-text-dim overflow-x-auto my-1">{codeLines.join("\n")}</pre>);
+      nodes.push(<pre key={`code-${i}`} className="bg-dash-surface-2 rounded p-2 text-xs text-dash-text-dim overflow-x-auto my-1">{codeLines.join("\n")}</pre>);
       continue;
     }
     if (line.trim() === "") { nodes.push(<div key={i} className="h-1.5" />); i++; continue; }
@@ -472,22 +472,22 @@ function PlanMarkdownView({ entry, onBack }: { entry: PlanEntry; onBack: () => v
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="text-dash-text-muted hover:text-dash-text text-xs transition-colors">&lsaquo; Plans</button>
           <span className="text-dash-border">|</span>
-          <span className="font-display font-semibold text-[11px] text-dash-text truncate">{entry.title}</span>
-          {cfg && <span className={`text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>}
+          <span className="font-display font-semibold text-xs text-dash-text truncate">{entry.title}</span>
+          {cfg && <span className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[9px] text-dash-text-dim font-semibold">{entry.plan.agentLabel}</span>
+          <span className="text-2xs text-dash-text-dim font-semibold">{entry.plan.agentLabel}</span>
           <OperatorTag operatorId={entry.operatorId} />
           {!entry.plan.isFromActiveSession && (
-            <span className="text-[7px] font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
+            <span className="text-2xs font-bold tracking-widest uppercase px-1 py-px rounded shrink-0 bg-dash-surface-2 text-dash-text-muted">
               PAST SESSION
             </span>
           )}
-          <span className="text-[9px] text-dash-text-muted">{timeAgo(entry.plan.timestamp)}</span>
-          {entry.tasksTotal > 0 && <span className="text-[9px] text-dash-text-muted">{entry.tasksDone}/{entry.tasksTotal} tasks</span>}
+          <span className="text-2xs text-dash-text-muted">{timeAgo(entry.plan.timestamp)}</span>
+          {entry.tasksTotal > 0 && <span className="text-2xs text-dash-text-muted">{entry.tasksDone}/{entry.tasksTotal} tasks</span>}
         </div>
       </div>
-      <div className="px-3.5 py-2.5 text-[11px] text-dash-text-dim">
+      <div className="px-3.5 py-2.5 text-xs text-dash-text-dim">
         {entry.plan.markdown ? renderMarkdown(entry.plan.markdown)
           : entry.plan.status === "drafting" && entry.plan.draftingActivity
             ? <DraftingActivityPanel activity={entry.plan.draftingActivity} planTimestamp={entry.plan.timestamp} />
@@ -509,11 +509,11 @@ function renderIntentTask(task: IntentTaskView) {
   return (
     <div key={task.id} className="border border-dash-border rounded px-2 py-1.5 bg-dash-surface/40">
       <div className="flex items-center gap-1.5">
-        <span className={`text-[8px] font-semibold tracking-widest ${stateClass}`}>{task.state.replace("_", " ").toUpperCase()}</span>
-        {task.ownerLabel && <span className="text-[9px] text-dash-blue">{task.ownerLabel}</span>}
+        <span className={`text-2xs font-semibold tracking-widest ${stateClass}`}>{task.state.replace("_", " ").toUpperCase()}</span>
+        {task.ownerLabel && <span className="text-2xs text-dash-blue">{task.ownerLabel}</span>}
       </div>
-      <div className="text-[10px] text-dash-text truncate">{task.subject}</div>
-      {evidenceParts.length > 0 && <div className="text-[9px] text-dash-text-muted mt-0.5">{evidenceParts.join(" • ")}</div>}
+      <div className="text-xs text-dash-text truncate">{task.subject}</div>
+      {evidenceParts.length > 0 && <div className="text-2xs text-dash-text-muted mt-0.5">{evidenceParts.join(" • ")}</div>}
     </div>
   );
 }
@@ -525,36 +525,36 @@ function PlanVsRealityView({ workstream }: { workstream: Workstream }) {
       <div className="px-3.5 py-2.5 border-b border-dash-border bg-dash-surface">
         <div className="flex items-center gap-2">
           <span className="font-display font-bold text-xs text-dash-text">{workstream.name}</span>
-          <span className={`text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${intentStatusClass[workstream.intentStatus]}`}>{intentStatusLabel[workstream.intentStatus]}</span>
+          <span className={`text-2xs font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${intentStatusClass[workstream.intentStatus]}`}>{intentStatusLabel[workstream.intentStatus]}</span>
         </div>
-        <div className="flex flex-wrap items-center gap-3 mt-1 text-[9px] text-dash-text-muted">
+        <div className="flex flex-wrap items-center gap-3 mt-1 text-2xs text-dash-text-muted">
           <span className="text-dash-green">{workstream.intentCoveragePct}% coverage</span>
           <span className={workstream.driftPct > 0 ? "text-dash-yellow" : ""}>{workstream.driftPct}% drift</span>
           <span className={workstream.intentConfidence === "high" ? "text-dash-green" : workstream.intentConfidence === "medium" ? "text-dash-yellow" : "text-dash-red"}>{workstream.intentConfidence} confidence</span>
           {workstream.lastIntentUpdateAt && <span>updated {timeAgo(workstream.lastIntentUpdateAt)}</span>}
           {activePlan && <span>plan: {extractTitle(activePlan.markdown)}</span>}
         </div>
-        {workstream.driftReasons.length > 0 && <div className="text-[9px] text-dash-yellow mt-1">{workstream.driftReasons.slice(0, 3).join(" • ")}</div>}
+        {workstream.driftReasons.length > 0 && <div className="text-2xs text-dash-yellow mt-1">{workstream.driftReasons.slice(0, 3).join(" • ")}</div>}
       </div>
       <div className="grid grid-cols-2 gap-px bg-dash-border min-h-0">
         <div className="bg-dash-bg px-3.5 py-2.5">
-          <div className="text-[10px] font-semibold text-dash-text mb-2">Canonical Intent</div>
+          <div className="text-xs font-semibold text-dash-text mb-2">Canonical Intent</div>
           <div className="space-y-2">
             <div>
-              <div className="text-[9px] text-dash-blue mb-1">Planned + In Progress</div>
-              {workstream.intentLanes.inProgress.length > 0 ? <div className="space-y-1">{workstream.intentLanes.inProgress.slice(0, 12).map(renderIntentTask)}</div> : <div className="text-[9px] text-dash-text-muted">No active planned tasks</div>}
+              <div className="text-2xs text-dash-blue mb-1">Planned + In Progress</div>
+              {workstream.intentLanes.inProgress.length > 0 ? <div className="space-y-1">{workstream.intentLanes.inProgress.slice(0, 12).map(renderIntentTask)}</div> : <div className="text-2xs text-dash-text-muted">No active planned tasks</div>}
             </div>
             <div>
-              <div className="text-[9px] text-dash-green mb-1">Planned + Done</div>
-              {workstream.intentLanes.done.length > 0 ? <div className="space-y-1">{workstream.intentLanes.done.slice(0, 12).map(renderIntentTask)}</div> : <div className="text-[9px] text-dash-text-muted">No completed planned tasks</div>}
+              <div className="text-2xs text-dash-green mb-1">Planned + Done</div>
+              {workstream.intentLanes.done.length > 0 ? <div className="space-y-1">{workstream.intentLanes.done.slice(0, 12).map(renderIntentTask)}</div> : <div className="text-2xs text-dash-text-muted">No completed planned tasks</div>}
             </div>
           </div>
         </div>
         <div className="bg-dash-bg px-3.5 py-2.5">
-          <div className="text-[10px] font-semibold text-dash-text mb-2">Reality</div>
+          <div className="text-xs font-semibold text-dash-text mb-2">Reality</div>
           <div>
-            <div className="text-[9px] text-dash-yellow mb-1">Unplanned Work</div>
-            {workstream.intentLanes.unplanned.length > 0 ? <div className="space-y-1">{workstream.intentLanes.unplanned.slice(0, 16).map(renderIntentTask)}</div> : <div className="text-[9px] text-dash-text-muted">No unplanned work detected</div>}
+            <div className="text-2xs text-dash-yellow mb-1">Unplanned Work</div>
+            {workstream.intentLanes.unplanned.length > 0 ? <div className="space-y-1">{workstream.intentLanes.unplanned.slice(0, 16).map(renderIntentTask)}</div> : <div className="text-2xs text-dash-text-muted">No unplanned work detected</div>}
           </div>
         </div>
       </div>
@@ -571,7 +571,7 @@ export function PlanDetail({ workstreams, localPlanCollisions = [], planWindow =
 function ConfidenceBadge({ confidence }: { confidence: LocalPlanCollision["confidence"] }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-xl border px-2 py-1 text-[8px] font-semibold ${confidenceClass[confidence]}`}
+      className={`inline-flex items-center gap-1.5 rounded-xl border px-2 py-1 text-2xs font-semibold ${confidenceClass[confidence]}`}
     >
       <span className="inline-flex items-end gap-[2px] h-3">
         <span className="w-[3px] h-[6px] rounded-[2px] bg-current opacity-60" />

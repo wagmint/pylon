@@ -8,6 +8,9 @@
 export default {
   theme: {
     extend: {
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
+      },
       fontFamily: {
         mono: ["JetBrains Mono", "Fira Code", "monospace"],
         sans: ["Inter", "system-ui", "sans-serif"],

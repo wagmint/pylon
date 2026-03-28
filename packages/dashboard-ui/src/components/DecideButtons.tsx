@@ -37,7 +37,7 @@ export function DecideButtons({
     }
   }
 
-  const textSize = size === "xs" ? "text-[8px]" : "text-[10px]";
+  const textSize = size === "xs" ? "text-2xs" : "text-xs";
   const px = size === "xs" ? "px-1.5" : "px-2";
   const py = "py-0.5";
 

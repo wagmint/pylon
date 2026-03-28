@@ -20,7 +20,7 @@ export function OperatorTag({ operatorId, className }: OperatorTagProps) {
         className="w-1.5 h-1.5 rounded-full shrink-0"
         style={{ backgroundColor: operator.color }}
       />
-      <span className="text-[8px] text-dash-text-muted font-mono">
+      <span className="text-2xs text-dash-text-muted font-mono">
         {operator.name}
       </span>
     </span>
