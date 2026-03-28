@@ -1,15 +1,15 @@
 # State: 0001-dashboard-master-detail-layout
 
-**Phase**: ARCHITECT complete
-**Status**: Ready for SETUP
+**Phase**: SETUP complete
+**Status**: Ready for IMPLEMENT
 
 ## Progress
 - [x] ARCHITECT: task.md, plan.md, state.md written
-- [ ] SETUP
+- [x] SETUP
 - [ ] IMPLEMENT
-  - [ ] Checkpoint 1: Typography Foundation
-  - [ ] Checkpoint 2: Badge Consistency & ConfidenceBadge Extraction
-  - [ ] Checkpoint 3: Workstream Card Risk Indicators
+  - [x] IMPLEMENT Checkpoint 1: Typography Foundation ✅
+  - [x] IMPLEMENT Checkpoint 2: Badge Consistency & ConfidenceBadge Extraction ✅
+  - [x] IMPLEMENT Checkpoint 3: Workstream Card Risk Indicators ✅
   - [ ] Checkpoint 4: HomeView Component
   - [ ] Checkpoint 5: DetailView Component
   - [ ] Checkpoint 6: Page Layout Integration
@@ -18,8 +18,13 @@
 - [ ] REVIEW
 - [ ] CLEANUP
 
+## Environment
+- Worktree: `/Users/jeremylin/Projects/hexdeck-0001-dashboard-master-detail-layout` (sibling to project root)
+- Branch: `task/0001-dashboard-master-detail-layout`
+- Install: verified
+
 ## Next Action
-SETUP: create worktree
+IMPLEMENT: Checkpoint 4 — HomeView Component
 
 ## Blockers
 None.

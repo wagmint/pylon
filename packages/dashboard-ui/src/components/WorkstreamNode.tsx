@@ -1,7 +1,6 @@
 "use client";
 
 import type { Workstream, IntentTaskView, AgentStatus } from "../types";
-import { OperatorTag } from "./OperatorTag";
 import { timeAgo } from "../utils";
 
 interface WorkstreamNodeProps {
@@ -74,6 +73,33 @@ function renderTask(task: IntentTaskView) {
   );
 }
 
+function riskDotClass(level: "green" | "yellow" | "red"): string {
+  if (level === "green") return "bg-dash-green";
+  if (level === "yellow") return "bg-dash-yellow";
+  return "bg-dash-red";
+}
+
+function contextRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const worst = Math.max(0, ...workstream.agents.map(a => a.risk.contextUsagePct));
+  if (worst >= 80) return "red";
+  if (worst >= 60) return "yellow";
+  return "green";
+}
+
+function errorRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const rate = workstream.risk.errorRate;
+  if (rate >= 15) return "red";
+  if (rate >= 5) return "yellow";
+  return "green";
+}
+
+function stallRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const total = workstream.agents.reduce((sum, a) => sum + a.risk.spinningSignals.length, 0);
+  if (total >= 2) return "red";
+  if (total >= 1) return "yellow";
+  return "green";
+}
+
 function getCodexBadge(workstream: Workstream): { label: string; className: string } {
   const hasWarning = workstream.agents.some(a => a.status === "warning");
   if (hasWarning) return { label: "ERRORS", className: "text-dash-red bg-dash-red/10" };
@@ -107,6 +133,12 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
           <span className={`text-2xs font-semibold px-1 py-px rounded ${badge.className}`}>
             {badge.label}
           </span>
+        </div>
+        <div className="w-full h-1 rounded-full bg-dash-surface-2 mb-0.5">
+          <div
+            className="h-1 rounded-full bg-dash-green"
+            style={{ width: `${Math.min(100, workstream.completionPct)}%` }}
+          />
         </div>
         <div className="flex gap-2.5 text-2xs text-dash-text-muted">
           <span className="text-dash-green">
@@ -150,16 +182,23 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
             <div key={agent.sessionId} className="flex items-center gap-1 text-xs">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${agentDot[agent.status]}`} />
               <span className="text-dash-text-dim">{agent.label}</span>
-              <span className={`text-2xs font-semibold px-0.5 rounded font-mono ${
-                agent.agentType === "codex"
-                  ? "text-dash-green/70"
-                  : "text-dash-blue/70"
-              }`}>
-                {agent.agentType === "codex" ? "codex" : "claude"}
-              </span>
-              <OperatorTag operatorId={agent.operatorId} />
             </div>
           ))}
+        </div>
+
+        <div className="flex gap-3 mt-1 text-2xs text-dash-text-muted">
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(contextRisk(workstream))}`} />
+            Context
+          </span>
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(errorRisk(workstream))}`} />
+            Errors
+          </span>
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(stallRisk(workstream))}`} />
+            Stalls
+          </span>
         </div>
 
         {!isCodex && workstream.driftReasons.length > 0 && (
