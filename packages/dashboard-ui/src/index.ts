@@ -61,3 +61,4 @@ export type { PlanWindow } from "./components/PlanDetail";
 export { ProgressBar } from "./components/ProgressBar";
 export { DeviationItem } from "./components/DeviationItem";
 export { TurnEntry } from "./components/TurnEntry";
+export { AgentContextCard } from "./components/AgentContextCard";
