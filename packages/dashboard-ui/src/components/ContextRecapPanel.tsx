@@ -97,10 +97,13 @@ export function ContextRecapPanel({ workstream }: ContextRecapPanelProps) {
   }
 
   return (
-    <div className="overflow-y-auto h-full">
-      {sorted.map((agent, i) => (
-        <div key={agent.sessionId} ref={setCardRef(agent.sessionId)}>
-          {i > 0 && <div className="border-t border-dash-border" />}
+    <div className="overflow-y-auto h-full flex flex-col gap-2 p-2">
+      {sorted.map((agent) => (
+        <div
+          key={agent.sessionId}
+          ref={setCardRef(agent.sessionId)}
+          className="rounded-md border border-white/8 bg-white/[0.02]"
+        >
           <AgentContextCard agent={agent} />
         </div>
       ))}

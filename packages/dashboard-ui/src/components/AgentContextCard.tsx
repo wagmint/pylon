@@ -45,7 +45,7 @@ export function AgentContextCard({ agent }: AgentContextCardProps) {
   return (
     <div className="flex flex-col">
       {/* Sticky header */}
-      <div className="sticky top-0 z-10 bg-dash-surface-1 flex items-center gap-2 px-3 py-2 border-b border-white/5">
+      <div className="sticky top-0 z-10 bg-dash-surface-1 flex items-center gap-2 px-3 py-2 border-b border-white/5 rounded-t-md">
         <AgentPip status={agent.status} />
         <span className="text-xs font-medium text-neutral-200 truncate">
           {agent.label}
