@@ -12,6 +12,7 @@ import { buildFeed } from "./feed.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
+import { buildTurnSummaries } from "./turn-summaries.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
@@ -1071,7 +1072,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       plans,
       risk,
       operatorId: sessionOperatorMap.get(parsed.session.id) ?? "self",
-      recentTurns: [],
+      recentTurns: buildTurnSummaries(parsed.turns),
       blockedOn,
     });
   }
