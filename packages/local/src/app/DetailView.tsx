@@ -10,12 +10,14 @@ import {
   WorkstreamNode,
   FeedItem,
   PlanDetail,
+  ContextRecapPanel,
+  ContextRecapPanelSkeleton,
 } from "@hexdeck/dashboard-ui";
 
-type Tab = "intent-map" | "live-feed" | "plans";
+type Tab = "context-recap" | "live-feed" | "plans";
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "intent-map", label: "Intent Map" },
+  { key: "context-recap", label: "Context Recap" },
   { key: "live-feed", label: "Live Feed" },
   { key: "plans", label: "Plans" },
 ];
@@ -35,11 +37,11 @@ export function DetailView({
   onPlanWindowChange,
   onDecide,
 }: DetailViewProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("intent-map");
+  const [activeTab, setActiveTab] = useState<Tab>("context-recap");
 
-  // Reset tab to Intent Map when workstream changes
+  // Reset tab to Context Recap when workstream changes
   useEffect(() => {
-    setActiveTab("intent-map");
+    setActiveTab("context-recap");
   }, [workstream.projectId]);
 
   const filteredFeed = feed.filter(
@@ -70,8 +72,8 @@ export function DetailView({
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-        {activeTab === "intent-map" && (
-          <WorkstreamNode workstream={workstream} />
+        {activeTab === "context-recap" && (
+          <ContextRecapPanel workstream={workstream} />
         )}
 
         {activeTab === "live-feed" && (
