@@ -12,8 +12,8 @@ interface AgentContextCardProps {
 export function AgentContextCard({ agent }: AgentContextCardProps) {
   const prevTurnIdsRef = useRef<Set<string> | null>(null);
 
-  // Build set of previous turn timestamps to detect new ones
-  const currentTurnIds = new Set(agent.recentTurns.map((t) => t.timestamp));
+  // Build set of previous turn IDs to detect new ones
+  const currentTurnIds = new Set(agent.recentTurns.map((t) => t.id));
   const newTurnIds = new Set<string>();
 
   if (prevTurnIdsRef.current) {
@@ -60,8 +60,8 @@ export function AgentContextCard({ agent }: AgentContextCardProps) {
         <div className="flex flex-col gap-px px-1 py-1">
           {agent.recentTurns.map((turn) => (
             <div
-              key={turn.timestamp}
-              className={newTurnIds.has(turn.timestamp) ? "animate-flash-in" : ""}
+              key={turn.id}
+              className={newTurnIds.has(turn.id) ? "animate-flash-in" : ""}
             >
               <TurnEntry turn={turn} />
             </div>
