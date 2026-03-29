@@ -17,6 +17,10 @@ help:
 	@echo "  make install        - Install all dependencies"
 	@echo "  make build          - Build frontend"
 	@echo "  make prepare-menubar  - Stage resources for menubar Tauri build/dev"
+	@echo "  make dev-server       - Start server in dev mode (hot-reload)"
+	@echo "  make dev-menubar      - Build debug .app bundle (registers deep links)"
+	@echo "  make open-menubar     - Launch the debug .app"
+	@echo "  make test-deeplink    - Test hexdeck:// deep link"
 	@echo "  make dashboard-version [LEVEL=patch|minor|major] - Bump @hexdeck/dashboard-ui version"
 	@echo "  make cli-version [LEVEL=patch|minor|major]       - Bump @hexdeck/cli version"
 	@echo "  make checkpoint NOTE='my note' - Create a checkpoint"
@@ -95,6 +99,34 @@ prepare-menubar:
 	@cp -r packages/local/out packages/menubar/src-tauri/dashboard
 	@echo ""
 	@echo "  ✓ Done. You can now run: cd packages/menubar && npm run dev"
+
+# Dev: start server in dev mode (hot-reload)
+.PHONY: dev-server
+dev-server:
+	@lsof -ti :$(API_PORT) | xargs -r kill 2>/dev/null || true
+	cd packages/server && $(NPX) tsx watch src/server/main.ts
+
+# Dev: build menubar debug .app bundle (registers URL schemes with macOS)
+.PHONY: dev-menubar
+dev-menubar: prepare-menubar
+	cd packages/menubar && $(NPM) run build -- --debug
+	@echo ""
+	@echo "  ✓ Debug build ready. Launch with:"
+	@echo "    open packages/menubar/src-tauri/target/debug/bundle/macos/Hexdeck.app"
+
+# Dev: launch the debug menubar .app
+.PHONY: open-menubar
+open-menubar:
+	@test -d packages/menubar/src-tauri/target/debug/bundle/macos/Hexdeck.app || { \
+		echo "  ✗ Debug build not found. Run 'make dev-menubar' first."; exit 1; \
+	}
+	open packages/menubar/src-tauri/target/debug/bundle/macos/Hexdeck.app
+
+# Dev: test deep link (requires debug .app to be running)
+.PHONY: test-deeplink
+test-deeplink:
+	@echo "Testing hexdeck:// deep link..."
+	open "hexdeck://join?t=fake-token&p=fake-id&n=TestTeam"
 
 # Install
 .PHONY: install

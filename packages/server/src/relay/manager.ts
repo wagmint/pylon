@@ -331,7 +331,12 @@ class RelayManager {
   private async doFlushIntentEvents(target: RelayTarget, state: PendingIntentFlushState): Promise<void> {
     while (state.queue.length > 0) {
       const batch = state.queue.slice(0, INTENT_BATCH_SIZE);
-      await sendIntentEvents(target, batch);
+      try {
+        await sendIntentEvents(target, batch);
+      } catch (err) {
+        console.error(`[relay] intent flush failed for ${target.hexcoreId}:`, err instanceof Error ? err.message : err);
+        break;
+      }
 
       const now = Date.now();
       for (const event of batch) {

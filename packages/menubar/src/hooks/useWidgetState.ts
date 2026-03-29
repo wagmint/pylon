@@ -17,10 +17,14 @@ export interface WidgetState {
   onHoverLeave: () => void;
   onClickFavicon: () => void;
   collapseToFavicon: () => void;
+  expandToCard: () => void;
+  suppressAutoCollapse: boolean;
+  setSuppressAutoCollapse: (v: boolean) => void;
 }
 
 export function useWidgetState(interactionsBlocked = false): WidgetState {
   const [tier, setTier] = useState<WidgetTier>("favicon");
+  const [suppressAutoCollapse, setSuppressAutoCollapse] = useState(false);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizingRef = useRef(false);
   const saveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +104,14 @@ export function useWidgetState(interactionsBlocked = false): WidgetState {
     resizeWindow("favicon");
   }, [clearCollapseTimer, resizeWindow]);
 
+  const expandToCard = useCallback(() => {
+    if (tier === "card") return;
+    clearCollapseTimer();
+    setTier("card");
+    resizeWindow("card");
+    getCurrentWindow().setFocus();
+  }, [tier, clearCollapseTimer, resizeWindow]);
+
   // Save position when the user drags (not during programmatic resize)
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -141,7 +153,7 @@ export function useWidgetState(interactionsBlocked = false): WidgetState {
     })();
   }, []);
 
-  // Listen for focus loss to collapse card
+  // Listen for focus loss to collapse card (unless suppressed by toast)
   useEffect(() => {
     if (tier !== "card") return;
 
@@ -149,7 +161,7 @@ export function useWidgetState(interactionsBlocked = false): WidgetState {
     let unlisten: (() => void) | undefined;
 
     win.onFocusChanged(({ payload: focused }) => {
-      if (!focused) {
+      if (!focused && !suppressAutoCollapse) {
         setTier("favicon");
         resizeWindow("favicon");
       }
@@ -158,7 +170,7 @@ export function useWidgetState(interactionsBlocked = false): WidgetState {
     });
 
     return () => unlisten?.();
-  }, [tier, resizeWindow]);
+  }, [tier, suppressAutoCollapse, resizeWindow]);
 
   // Listen for Escape key to collapse card
   useEffect(() => {
@@ -181,5 +193,8 @@ export function useWidgetState(interactionsBlocked = false): WidgetState {
     onHoverLeave,
     onClickFavicon,
     collapseToFavicon,
+    expandToCard,
+    suppressAutoCollapse,
+    setSuppressAutoCollapse,
   };
 }

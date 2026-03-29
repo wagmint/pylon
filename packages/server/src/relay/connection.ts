@@ -306,8 +306,13 @@ export class RelayConnection {
     }
     if (this.ws) {
       this.ws.removeAllListeners();
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.close();
+      this.ws.on("error", () => {}); // Prevent unhandled error crash during close
+      try {
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close();
+        }
+      } catch {
+        // WebSocket may throw if closed before connection established
       }
       this.ws = null;
     }
