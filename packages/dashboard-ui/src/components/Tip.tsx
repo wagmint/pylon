@@ -14,7 +14,7 @@ interface TipProps {
  */
 export function Tip({ text, children, display = "block" }: TipProps) {
   const [visible, setVisible] = useState(false);
-  const timeout = useRef<ReturnType<typeof setTimeout>>();
+  const timeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const show = useCallback(() => {
     timeout.current = setTimeout(() => setVisible(true), 400);

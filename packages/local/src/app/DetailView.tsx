@@ -7,11 +7,9 @@ import type {
   PlanWindow,
 } from "@hexdeck/dashboard-ui";
 import {
-  WorkstreamNode,
   FeedItem,
   PlanDetail,
   ContextRecapPanel,
-  ContextRecapPanelSkeleton,
 } from "@hexdeck/dashboard-ui";
 
 type Tab = "context-recap" | "live-feed" | "plans";
