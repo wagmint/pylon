@@ -44,11 +44,38 @@ Requires: Node 22+, Rust stable, [Tauri v2 prerequisites](https://v2.tauri.app/s
 ```bash
 # from the monorepo root
 npm install
-
-# run in dev mode
-cd packages/menubar
-npm run dev
 ```
+
+### Quick iteration (no deep link testing)
+
+```bash
+cd packages/menubar && npm run dev
+```
+
+This uses Vite HMR for fast frontend changes but runs the binary directly (not inside a `.app` bundle), so macOS doesn't register the `hexdeck://` URL scheme.
+
+### Testing deep links
+
+Deep links require a `.app` bundle so macOS can register the `hexdeck://` URL scheme. From the monorepo root:
+
+```bash
+# 1. Start the server with hot-reload (in one terminal)
+make dev-server
+
+# 2. Build the debug .app (in another terminal)
+make dev-menubar
+
+# 3. Launch it
+make open-menubar
+
+# 4. Test a deep link (in another terminal)
+make test-deeplink
+# or: open "hexdeck://join?t=TOKEN&p=HEXCORE_ID&n=TeamName"
+```
+
+After code changes, re-run `make dev-menubar` and `make open-menubar`. The server (`make dev-server`) hot-reloads automatically.
+
+> **Tip:** If the bundled server fights with `dev-server` for port 7433, quit the `.app` before starting `make dev-server`, or vice versa.
 
 ## Releasing
 

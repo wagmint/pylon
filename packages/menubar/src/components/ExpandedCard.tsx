@@ -1,12 +1,15 @@
+import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import type { TraySeverity, HexcoreAlert } from "../lib/alerts";
 import type { DashboardState } from "../lib/types";
+import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { AlertList } from "./AlertList";
 import { AgentList } from "./AgentList";
 import { GlowHex } from "./GlowHex";
 import { ColorLegendPopover } from "./ColorLegendPopover";
+import { JoinToast } from "./JoinToast";
 
 interface ExpandedCardProps {
   severity: TraySeverity;
@@ -16,6 +19,8 @@ interface ExpandedCardProps {
   loading: boolean;
   error: string | null;
   onClose?: () => void;
+  joinToast?: JoinToastType | null;
+  clearJoinToast?: () => void;
 }
 
 export function ExpandedCard({
@@ -26,9 +31,18 @@ export function ExpandedCard({
   loading,
   error,
   onClose,
+  joinToast,
+  clearJoinToast,
 }: ExpandedCardProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
+
+  // Auto-dismiss join toast after 15 seconds
+  useEffect(() => {
+    if (!joinToast || !clearJoinToast) return;
+    const timer = setTimeout(clearJoinToast, 15000);
+    return () => clearTimeout(timer);
+  }, [joinToast, clearJoinToast]);
 
   return (
     <div className="w-[320px] h-[400px] flex flex-col bg-dash-bg border border-dash-border rounded-xl overflow-hidden animate-fade-in">
@@ -79,6 +93,10 @@ export function ExpandedCard({
               Is the Hexdeck server running?
             </p>
           </div>
+        )}
+
+        {joinToast && clearJoinToast && (
+          <JoinToast toast={joinToast} onDismiss={clearJoinToast} />
         )}
 
         {!loading && state && (
