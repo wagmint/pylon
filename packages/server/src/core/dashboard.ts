@@ -1071,6 +1071,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       plans,
       risk,
       operatorId: sessionOperatorMap.get(parsed.session.id) ?? "self",
+      recentTurns: [],
       blockedOn,
     });
   }

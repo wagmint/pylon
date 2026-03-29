@@ -3,6 +3,7 @@ export type {
   IntentEvidence, IntentTaskView, IntentLanes,
   OperatorStatus, Operator,
   PlanStatus, PlanTask, DraftingActivity, SessionPlan,
+  TurnSummary,
   AgentStatus, Agent, WorkstreamMode, Workstream, CollisionSeverity, Collision,
   LocalPlanCollisionType, LocalPlanCollisionConfidence, LocalPlanCollisionSeverity, LocalPlanCollision,
   FeedEventType, FeedEvent, DashboardSummary, DashboardState,

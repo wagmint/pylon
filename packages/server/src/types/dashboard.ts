@@ -82,6 +82,24 @@ export interface Operator {
   status: OperatorStatus;
 }
 
+// ─── Turn Summary Types ──────────────────────────────────────────────────────
+
+export interface TurnSummary {
+  id: string;
+  timestamp: string;
+  role: "user" | "assistant";
+  userInstruction: string;
+  assistantPreview: string;
+  goalSummary: string | null;
+  actionSummary: string | null;
+  filesChanged: string[];
+  hasCommit: boolean;
+  commitMessage: string | null;
+  hasError: boolean;
+  model: string | null;
+  tokenUsage: { input: number; output: number } | null;
+}
+
 // ─── Dashboard Types ─────────────────────────────────────────────────────────
 
 export type PlanStatus = "drafting" | "implementing" | "completed" | "rejected" | "none";
@@ -149,6 +167,8 @@ export interface Agent {
   risk: AgentRisk;
   /** Operator this agent belongs to */
   operatorId: string;
+  /** Recent turn summaries for context recap (max 20, within 24h, newest first) */
+  recentTurns: TurnSummary[];
   /** What the agent is blocked on when status === "blocked". Array supports multiple parallel tool calls. */
   blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
