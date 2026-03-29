@@ -32,6 +32,7 @@ export type {
   LocalPlanCollisionType,
   LocalPlanCollisionConfidence,
   LocalPlanCollisionSeverity,
+  TurnSummary,
 } from "./types";
 
 // Utils
@@ -59,3 +60,4 @@ export { PlanDetail } from "./components/PlanDetail";
 export type { PlanWindow } from "./components/PlanDetail";
 export { ProgressBar } from "./components/ProgressBar";
 export { DeviationItem } from "./components/DeviationItem";
+export { TurnEntry } from "./components/TurnEntry";
