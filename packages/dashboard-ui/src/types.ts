@@ -146,6 +146,7 @@ export interface Agent {
   risk: AgentRisk;
   operatorId: string;
   recentTurns: TurnSummary[];
+  skippedTurnCount: number;
   blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
 

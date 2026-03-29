@@ -1059,6 +1059,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
         })
       : undefined;
 
+    const turnResult = buildTurnSummaries(parsed.turns);
+
     agents.push({
       sessionId: parsed.session.id,
       label,
@@ -1072,7 +1074,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       plans,
       risk,
       operatorId: sessionOperatorMap.get(parsed.session.id) ?? "self",
-      recentTurns: buildTurnSummaries(parsed.turns),
+      recentTurns: turnResult.summaries,
+      skippedTurnCount: turnResult.skippedTurnCount,
       blockedOn,
     });
   }

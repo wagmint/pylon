@@ -10,17 +10,15 @@ interface TurnEntryProps {
 
 const roleConfig: Record<
   TurnSummary["role"],
-  { label: string; borderClass: string; labelClass: string }
+  { borderClass: string; timeClass: string }
 > = {
   user: {
-    label: "You",
     borderClass: "border-l-2 border-l-blue-400",
-    labelClass: "text-blue-400",
+    timeClass: "text-blue-400/60",
   },
   assistant: {
-    label: "Agent",
     borderClass: "border-l-2 border-l-dash-green",
-    labelClass: "text-dash-green",
+    timeClass: "text-dash-green/60",
   },
 };
 
@@ -33,10 +31,11 @@ export function TurnEntry({ turn }: TurnEntryProps) {
   const [expanded, setExpanded] = useState(false);
   const config = roleConfig[turn.role];
 
-  const preview =
+  const fullText =
     turn.role === "user"
-      ? truncate(turn.userInstruction)
-      : truncate(turn.assistantPreview);
+      ? turn.userInstruction
+      : (turn.actionSummary || turn.assistantPreview);
+  const preview = truncate(fullText);
 
   return (
     <button
@@ -46,10 +45,7 @@ export function TurnEntry({ turn }: TurnEntryProps) {
     >
       {/* Collapsed header — always visible */}
       <div className="flex items-center gap-2 text-2xs">
-        <span className={`font-medium ${config.labelClass}`}>
-          {config.label}
-        </span>
-        <span className="text-neutral-500">{timeAgo(turn.timestamp)}</span>
+        <span className={config.timeClass}>{timeAgo(turn.timestamp)}</span>
         {turn.hasError && (
           <span className="text-dash-red" title="Error during turn">
             !
@@ -57,13 +53,15 @@ export function TurnEntry({ turn }: TurnEntryProps) {
         )}
       </div>
 
-      <p className="text-xs text-neutral-300 mt-0.5 leading-snug">{preview}</p>
+      <p className="text-xs text-neutral-300 mt-0.5 leading-snug">
+        {expanded ? fullText : preview}
+      </p>
 
-      {/* Expanded details */}
-      {expanded && (
+      {/* Expanded details (assistant turns only) */}
+      {expanded && turn.role === "assistant" && (
         <div className="mt-1.5 space-y-1">
-          {/* Goal summary for assistant turns */}
-          {turn.role === "assistant" && turn.goalSummary && (
+          {/* Goal summary */}
+          {turn.goalSummary && (
             <p className="text-2xs text-neutral-400 italic">
               {turn.goalSummary}
             </p>

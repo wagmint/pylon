@@ -13,7 +13,8 @@ export function AgentContextCard({ agent }: AgentContextCardProps) {
   const prevTurnIdsRef = useRef<Set<string> | null>(null);
 
   // Build set of previous turn IDs to detect new ones
-  const currentTurnIds = new Set(agent.recentTurns.map((t) => t.id));
+  const turns = agent.recentTurns ?? [];
+  const currentTurnIds = new Set(turns.map((t) => t.id));
   const newTurnIds = new Set<string>();
 
   if (prevTurnIdsRef.current) {
@@ -28,8 +29,16 @@ export function AgentContextCard({ agent }: AgentContextCardProps) {
     prevTurnIdsRef.current = currentTurnIds;
   });
 
+  const skipped = agent.skippedTurnCount ?? 0;
+  // Count how many entries belong to the init turn (pinned at bottom)
+  // The init turn produces 1-2 entries (user + optionally assistant)
+  const lastTurnId = turns.length > 0 ? turns[turns.length - 1].id.replace(/-(?:user|assistant)$/, "") : null;
+  const initPairSize = skipped > 0 && lastTurnId
+    ? turns.filter((t) => t.id.startsWith(lastTurnId)).length
+    : 0;
+
   // Derive model from most recent assistant turn
-  const latestModel = agent.recentTurns.find(
+  const latestModel = turns.find(
     (t) => t.role === "assistant" && t.model,
   )?.model;
 
@@ -47,23 +56,32 @@ export function AgentContextCard({ agent }: AgentContextCardProps) {
           </span>
         )}
         <span className="ml-auto text-2xs text-neutral-500 tabular-nums">
-          {agent.recentTurns.length} turn{agent.recentTurns.length !== 1 ? "s" : ""}
+          {turns.length} turn{turns.length !== 1 ? "s" : ""}
         </span>
       </div>
 
       {/* Turn list — already sorted reverse-chronological from server */}
-      {agent.recentTurns.length === 0 ? (
+      {turns.length === 0 ? (
         <p className="px-3 py-4 text-xs text-neutral-500 italic">
           No activity yet
         </p>
       ) : (
         <div className="flex flex-col gap-px px-1 py-1">
-          {agent.recentTurns.map((turn) => (
-            <div
-              key={turn.id}
-              className={newTurnIds.has(turn.id) ? "animate-flash-in" : ""}
-            >
-              <TurnEntry turn={turn} />
+          {turns.map((turn, i) => (
+            <div key={turn.id}>
+              {/* Skip indicator between recent turns and init prompt */}
+              {skipped > 0 && i === turns.length - initPairSize && (
+                <div className="flex items-center gap-2 px-2 py-1.5 my-0.5">
+                  <div className="flex-1 border-t border-dashed border-neutral-700" />
+                  <span className="text-2xs text-neutral-500 whitespace-nowrap">
+                    {skipped} turn{skipped !== 1 ? "s" : ""} omitted
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-neutral-700" />
+                </div>
+              )}
+              <div className={newTurnIds.has(turn.id) ? "animate-flash-in" : ""}>
+                <TurnEntry turn={turn} />
+              </div>
             </div>
           ))}
         </div>

@@ -62,8 +62,9 @@ Currently `TurnNode` data lives on the server and feeds into `FeedEvent` and `Ag
   - Given the Context Recap tab is active, when viewing the panel, then each agent has a distinct card with a header showing agent label and status
   - Given an agent context card, when viewing entries, then each entry shows either a user prompt or a major assistant response
   - Given an agent context card, when viewing the timeline, then entries are in reverse chronological order (newest at top)
-  - Given an entry is a user prompt, when viewing it, then it is visually distinct from assistant responses (different background color or left-border accent)
+  - Given an entry is a user prompt, when viewing it, then it is visually distinct from assistant responses via left-border color (blue for user, green for assistant) — no text labels like "You" or "Agent"
   - Given an entry is an assistant response, when viewing it, then it shows the action summary (files changed, commits, decisions) not raw text
+  - Given a TurnNode from the server, when building summaries, then it emits two TurnSummary entries: one for the user instruction (role: "user") and one for the assistant response (role: "assistant")
 - **Priority**: Must-have
 
 ### FR3: Multi-Agent Layout
@@ -83,7 +84,7 @@ Currently `TurnNode` data lives on the server and feeds into `FeedEvent` and `Ag
 - **Acceptance Criteria**:
   - Given a turn entry, when viewing it, then it shows:
     - Timestamp (relative, e.g. "2m ago")
-    - Role indicator: "You" for user prompts, agent label for assistant
+    - Role indicated by left-border color only: blue for user, green for assistant (no text labels)
     - Content: user instruction text (for user turns) or action summary (for assistant turns)
   - Given a user turn entry, when viewing it in collapsed state (default), then it shows a single-line preview truncated to ~80 chars with ellipsis
   - Given a user turn entry, when the user clicks on it, then it expands to show the full `userInstruction` text (up to 500 chars)
@@ -175,11 +176,11 @@ Context Recap Tab
 │   ├── AgentContextCard (agent-1, active — pinned to top)
 │   │   ├── Sticky Header: 🟢 pip + "agent-1" + model + "12 turns"
 │   │   └── Turn Timeline (reverse chronological, all visible)
-│   │       ├── TurnEntry (user, collapsed by default)
-│   │       │   └── "You · 2m ago" + truncated preview (~80 chars)
+│   │       ├── TurnEntry (user, blue border, collapsed by default)
+│   │       │   └── "2m ago" + truncated preview (~80 chars)
 │   │       │       └── [on click] → expands to full instruction
-│   │       └── TurnEntry (assistant, collapsed by default)
-│   │           └── "agent-1 · 1m ago" + truncated action summary
+│   │       └── TurnEntry (assistant, green border, collapsed by default)
+│   │           └── "1m ago" + truncated action summary
 │   │               └── [on click] → expands: full summary + file badges + commit
 │   │
 │   ├── ── divider (border-dash-border) ──
@@ -204,7 +205,7 @@ Context Recap Tab
 ### User Turn Entry — Collapsed (default)
 ```
 ┌─ blue left border ──────────────────────────┐
-│ You · 2m ago                                 │
+│ 2m ago                                       │
 │ "Refactor the auth middleware to use JWT…"    │
 └──────────────────────────────────────────────┘
 ```
@@ -212,7 +213,7 @@ Context Recap Tab
 ### User Turn Entry — Expanded (on click)
 ```
 ┌─ blue left border ──────────────────────────┐
-│ You · 2m ago                                 │
+│ 2m ago                                       │
 │ "Refactor the auth middleware to use JWT      │
 │  tokens instead of session cookies. Make      │
 │  sure to update the tests and add proper      │
@@ -223,7 +224,7 @@ Context Recap Tab
 ### Assistant Turn Entry — Collapsed (default)
 ```
 ┌─ green left border ─────────────────────────┐
-│ agent-1 · 1m ago                             │
+│ 1m ago                                       │
 │ Updated auth middleware with JWT flow…        │
 └──────────────────────────────────────────────┘
 ```
@@ -231,7 +232,7 @@ Context Recap Tab
 ### Assistant Turn Entry — Expanded (on click)
 ```
 ┌─ green left border ─────────────────────────┐
-│ agent-1 · 1m ago                     gpt-4o │
+│ 1m ago                                       │
 │ Updated auth middleware with JWT flow         │
 │ [auth.ts] [middleware.ts] [+2 files]         │
 │ ● committed: "refactor auth to JWT"          │
@@ -244,26 +245,26 @@ Context Recap Tab
 ┌─────────────────────────────────────────────┐
 │ 🟢 agent-1 · claude-sonnet · 12 turns      │ ← sticky header
 ├─────────────────────────────────────────────┤
-│ ┃ You · 2m ago                              │
+│ ┃ 2m ago  (blue border = user)              │
 │ ┃ "Refactor the auth middleware to use…"    │
 │                                             │
-│ ┃ agent-1 · 1m ago                          │
+│ ┃ 1m ago  (green border = assistant)        │
 │ ┃ Updated auth middleware with JWT flow…    │
 │                                             │
-│ ┃ You · 8m ago                              │
+│ ┃ 8m ago  (blue border = user)              │
 │ ┃ "Add rate limiting to the API…"           │
 ├─────────────── divider ─────────────────────┤
 │ 🟡 agent-2 · codex · 5 turns               │ ← sticky header
 ├─────────────────────────────────────────────┤
-│ ┃ You · 5m ago                              │
+│ ┃ 5m ago  (blue)                             │
 │ ┃ "Add logging to the pipeline…"            │
 │                                             │
-│ ┃ agent-2 · 4m ago                          │
+│ ┃ 4m ago  (green)                           │
 │ ┃ Added structured logging to pipeline…     │
 ├─────────────── divider ─────────────────────┤
 │ ⚪ agent-3 · claude-sonnet · 3 turns        │ ← sticky header
 ├─────────────────────────────────────────────┤
-│ ┃ You · 20m ago                             │
+│ ┃ 20m ago  (blue)                            │
 │ ┃ "Fix the failing test in auth…"           │
 └─────────────────────────────────────────────┘
          ↕ entire panel scrolls as one unit

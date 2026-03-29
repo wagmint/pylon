@@ -19,8 +19,8 @@ function sortAgents(agents: Agent[]): Agent[] {
     if (statusDiff !== 0) return statusDiff;
 
     // Within same status group, sort by most recent turn (descending)
-    const aLatest = a.recentTurns[0]?.timestamp ?? "";
-    const bLatest = b.recentTurns[0]?.timestamp ?? "";
+    const aLatest = (a.recentTurns ?? [])[0]?.timestamp ?? "";
+    const bLatest = (b.recentTurns ?? [])[0]?.timestamp ?? "";
     return bLatest.localeCompare(aLatest);
   });
 }

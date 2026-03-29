@@ -167,8 +167,10 @@ export interface Agent {
   risk: AgentRisk;
   /** Operator this agent belongs to */
   operatorId: string;
-  /** Recent turn summaries for context recap (max 20, within 24h, newest first) */
+  /** Recent turn summaries for context recap */
   recentTurns: TurnSummary[];
+  /** Number of turns omitted between the init prompt and recent turns */
+  skippedTurnCount: number;
   /** What the agent is blocked on when status === "blocked". Array supports multiple parallel tool calls. */
   blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
