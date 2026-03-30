@@ -1,4 +1,5 @@
-import type { ParsedSession, FeedEvent } from "../types/index.js";
+import type { ParsedSession, FeedEvent, TurnNode } from "../types/index.js";
+import type { SpinningSignal } from "../types/dashboard.js";
 import { formatIdleDuration } from "./duration.js";
 import { blockedSessions, type BlockedInfo } from "./blocked.js";
 
@@ -20,6 +21,7 @@ export function buildFeed(
   activeSessionIds?: Set<string>,
   operatorMap?: Map<string, string>,
   stalledSessionIds?: Set<string>,
+  spinningBySession?: Map<string, { signals: SpinningSignal[]; turns: TurnNode[] }>,
 ): FeedEvent[] {
   /** Resolve operatorId for a session */
   const opId = (sessionId: string) => operatorMap?.get(sessionId) ?? "self";
@@ -60,19 +62,6 @@ export function buildFeed(
             : `Committed changes to ${turn.filesChanged.length} file(s)`,
           commitSha: turn.commitSha ?? undefined,
           commitFiles: turn.filesChanged.length > 0 ? turn.filesChanged : undefined,
-        });
-      }
-
-      if (turn.hasError) {
-        addEvent({
-          id: `error-${sessionId}-${turn.index}`,
-          type: "error",
-          timestamp,
-          agentLabel: label,
-          sessionId,
-          projectPath,
-          operatorId,
-          message: `Error${turn.errorCount > 1 ? ` (${turn.errorCount}x)` : ""}: ${turn.sections.corrections.items[0]?.error || "encountered an error"}`,
         });
       }
 
@@ -256,6 +245,37 @@ export function buildFeed(
     }
   }
 
+  // 1e. Spinning events — transient, same pattern as stall/idle/blocked.
+  if (activeSessionIds && spinningBySession) {
+    // Clear stale spinning entries each cycle
+    for (const sessionId of activeSessionIds) {
+      feedLog.delete(`spinning-${sessionId}`);
+    }
+    for (const [sessionId, { signals, turns }] of spinningBySession) {
+      if (!activeSessionIds.has(sessionId)) continue;
+      // Only real spinning patterns (not stalled/idle which are handled separately)
+      const realSignals = signals.filter(s =>
+        s.pattern === "error_loop" || s.pattern === "file_churn" || s.pattern === "repeated_tool" || s.pattern === "stuck"
+      );
+      if (realSignals.length === 0) continue;
+
+      const label = labelMap?.get(sessionId) ?? sessionId.slice(0, 8);
+      const session = sessions.find(s => s.session.id === sessionId);
+      const message = buildSpinningMessage(realSignals, turns);
+
+      feedLog.set(`spinning-${sessionId}`, {
+        id: `spinning-${sessionId}`,
+        type: "spinning",
+        timestamp: new Date(),
+        agentLabel: label,
+        sessionId,
+        projectPath: session?.session.projectPath ?? "",
+        operatorId: opId(sessionId),
+        message,
+      });
+    }
+  }
+
   // 2. Trim to moving window (drop oldest)
   if (feedLog.size > MAX_FEED_SIZE) {
     const sorted = [...feedLog.entries()].sort(
@@ -298,4 +318,49 @@ function findTaskSubject(session: ParsedSession, taskId: string): string | null 
     if (tc) return tc.subject;
   }
   return null;
+}
+
+/**
+ * Build a human-readable spinning message from signals + turns.
+ * Picks the most specific signal and enriches with turn data.
+ */
+function buildSpinningMessage(signals: SpinningSignal[], turns: TurnNode[]): string {
+  const recent = turns.slice(-10);
+  const parts: string[] = [];
+
+  for (const signal of signals) {
+    switch (signal.pattern) {
+      case "error_loop": {
+        // Collect error descriptions from recent turns
+        const errorDescs: string[] = [];
+        for (const turn of recent) {
+          if (turn.hasError) {
+            for (const item of turn.sections.corrections.items) {
+              if (item.error) errorDescs.push(item.error.slice(0, 80));
+            }
+          }
+        }
+        const uniqueErrors = [...new Set(errorDescs)].slice(0, 3);
+        const errorSummary = uniqueErrors.length > 0
+          ? " — " + uniqueErrors.join("; ")
+          : "";
+        parts.push(`${signal.detail}${errorSummary}`);
+        break;
+      }
+      case "file_churn": {
+        parts.push(signal.detail);
+        break;
+      }
+      case "repeated_tool": {
+        parts.push(signal.detail);
+        break;
+      }
+      case "stuck": {
+        parts.push(signal.detail);
+        break;
+      }
+    }
+  }
+
+  return "Spinning: " + (parts.length > 0 ? parts.join("; ") : "agent appears stuck");
 }

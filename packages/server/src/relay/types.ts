@@ -126,7 +126,7 @@ export type RelayFeedEventType =
   | "collision_resolved"
   | "commit"
   | "completion"
-  | "error"
+  | "spinning"
   | "compaction"
   | "start"
   | "plan_started"

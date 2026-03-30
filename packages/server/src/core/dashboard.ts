@@ -16,10 +16,11 @@ import { buildTurnSummaries } from "./turn-summaries.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
-  ParsedSession, SessionInfo, Agent, AgentStatus,
+  ParsedSession, SessionInfo, Agent, AgentStatus, TurnNode,
   Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
   SessionPlan, PlanStatus, PlanTask, TokenUsage, DraftingActivity, IntentTaskView,
 } from "../types/index.js";
+import type { SpinningSignal } from "../types/dashboard.js";
 
 // ─── In-memory parse cache ──────────────────────────────────────────────────
 
@@ -1316,7 +1317,18 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   });
 
   // 8. Build feed
-  const feed = buildFeed(parsedSessions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds);
+  // Build spinningBySession map for agents with active spinning signals
+  const spinningBySession = new Map<string, { signals: SpinningSignal[]; turns: TurnNode[] }>();
+  for (const agent of agents) {
+    if (!agent.isActive || agent.risk.spinningSignals.length === 0) continue;
+    const parsed = parsedSessions.find(p => p.session.id === agent.sessionId);
+    if (!parsed) continue;
+    spinningBySession.set(agent.sessionId, {
+      signals: agent.risk.spinningSignals,
+      turns: parsed.turns,
+    });
+  }
+  const feed = buildFeed(parsedSessions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds, spinningBySession);
 
   // 9. Build operators — set status to "online" if any agents are active
   const operatorActiveSet = new Set<string>();
