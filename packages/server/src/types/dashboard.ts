@@ -284,7 +284,7 @@ export type FeedEventType =
   | "collision_resolved"
   | "commit"
   | "completion"
-  | "error"
+  | "spinning"
   | "compaction"
   | "start"
   | "plan_started"

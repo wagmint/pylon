@@ -34,10 +34,10 @@ const typeConfig: Record<
     icon: "\u21A5",
     iconClass: "bg-dash-green-dim text-dash-green",
   },
-  error: {
-    icon: "\u2716",
-    iconClass: "bg-dash-yellow-dim text-dash-yellow",
-    rowClass: "bg-dash-yellow-dim border-l-2 border-l-dash-yellow",
+  spinning: {
+    icon: "\u21BB",
+    iconClass: "bg-dash-red-dim text-dash-red",
+    rowClass: "bg-dash-red-dim border-l-2 border-l-dash-red",
   },
   completion: {
     icon: "\u2713",
