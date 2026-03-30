@@ -624,8 +624,9 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
         }
         return c.json({ valid: false, error: "Failed to look up invite token" }, 502);
       }
-      const data = await res.json() as { hexcoreId?: string; hexcoreName?: string; memberCount?: number };
-      return c.json({ valid: true, ...data, wsUrl });
+      const body = await res.json() as { success?: boolean; data?: { valid?: boolean; hexcoreId?: string; hexcoreName?: string; memberCount?: number } };
+      const info = body.data ?? body;
+      return c.json({ valid: true, ...info, wsUrl });
     } catch {
       return c.json({ valid: false, error: "Could not reach relay server" }, 502);
     }
