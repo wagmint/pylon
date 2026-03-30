@@ -56,10 +56,10 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
   return (
     <div
       onClick={() => onSelect?.(workstream.projectPath)}
-      className={`px-3.5 py-2.5 border-b border-dash-border cursor-pointer transition-colors ${
+      className={`group px-3.5 py-2.5 border-b border-dash-border cursor-pointer transition-colors ${
         isSelected
           ? "bg-dash-blue/10 border-l-2 border-l-dash-blue"
-          : hasActive ? `bg-dash-surface-2 border-l-2 ${stripColor}` : "hover:bg-dash-surface-2"
+          : hasActive ? `bg-dash-surface-2 hover:bg-dash-surface-3 border-l-2 ${stripColor}` : "hover:bg-dash-surface-2"
       }`}
     >
       <div className="flex items-center justify-between mb-1">
@@ -73,9 +73,12 @@ export function AgentCard({ workstream, isSelected, onSelect, onDecide }: AgentC
             </span>
           )}
         </div>
-        <span className="text-2xs text-dash-text-muted uppercase tracking-wide">
-          {workstream.agents.length} agent{workstream.agents.length !== 1 ? "s" : ""}
-        </span>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <span className="text-2xs text-dash-text-muted uppercase tracking-wide">
+            {workstream.agents.length} agent{workstream.agents.length !== 1 ? "s" : ""}
+          </span>
+          <span className={`${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity text-dash-text-muted text-xs`}>›</span>
+        </div>
       </div>
       {hasTasks && (
         <div className="text-2xs text-dash-text-muted mt-0.5">

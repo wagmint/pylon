@@ -10,6 +10,7 @@ import {
   TopBar,
   PanelHeader,
   AgentCard,
+  RiskPanel,
   RelayPanel,
 } from "@hexdeck/dashboard-ui";
 import { GuidedTour } from "@/components/GuidedTour";
@@ -174,7 +175,7 @@ export default function DashboardPage() {
 
       <div
         className="flex-1 grid gap-px bg-dash-border min-h-0"
-        style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr", gridTemplateRows: "1fr" }}
+        style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr minmax(260px, 320px)", gridTemplateRows: "1fr" }}
       >
         {/* LEFT PANEL: Workstream cards */}
         <div data-tour="agents" className="relative z-20 bg-dash-bg overflow-y-auto scrollbar-thin">
@@ -200,7 +201,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* RIGHT PANEL: Detail or Home */}
+        {/* CENTER PANEL: Detail or Home */}
         <div className="bg-dash-bg min-h-0 overflow-y-auto scrollbar-thin">
           {selectedWorkstream ? (
             <DetailView
@@ -213,6 +214,15 @@ export default function DashboardPage() {
           ) : (
             <HomeView state={state} />
           )}
+        </div>
+
+        {/* RIGHT PANEL: Risk */}
+        <div className="bg-dash-bg min-h-0 overflow-y-auto scrollbar-thin">
+          <PanelHeader
+            title="Risk"
+            count={`${agents.filter(a => a.risk.overallRisk !== "nominal").length} at risk`}
+          />
+          <RiskPanel agents={agents} />
         </div>
       </div>
 

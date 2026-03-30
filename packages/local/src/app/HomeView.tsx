@@ -110,6 +110,10 @@ export function HomeView({ state }: HomeViewProps) {
           </div>
         )}
       </div>
+
+      <div className="text-2xs text-dash-text-muted mt-8 text-center">
+        Select a workstream to view context recap, live feed, and plans
+      </div>
     </div>
   );
 }
