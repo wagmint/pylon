@@ -201,7 +201,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     commands.push(cmdStr);
     toolCounts["shell_command"] = (toolCounts["shell_command"] ?? 0) + 1;
 
-    if (/git\s+commit/.test(cmdStr)) {
+    if (isGitCommitCommand(cmdStr)) {
       hasCommit = true;
       commitMessage = extractCodexCommitMessage(cmdStr);
     }
@@ -409,6 +409,10 @@ function summarizeCodexInstruction(text: string): { summary: string; category: T
   return { summary, category: "conversation" };
 }
 
+function isGitCommitCommand(cmd: string): boolean {
+  return /\bgit\b(?:\s+-\S+(?:\s+\S+)*)?\s+\bcommit\b/.test(cmd);
+}
+
 function extractCodexCommitMessage(cmd: string): string | null {
   // Heredoc style
   const heredocMatch = cmd.match(/cat\s+<<'?EOF'?\n([\s\S]*?)\n\s*EOF/);
@@ -419,7 +423,7 @@ function extractCodexCommitMessage(cmd: string): string | null {
   }
 
   // Simple -m style
-  const match = cmd.match(/git\s+commit\s+.*?-m\s+["']([^"']+)["']/);
+  const match = cmd.match(/\bgit\b(?:\s+-\S+(?:\s+\S+)*)?\s+\bcommit\b\s+.*?-m\s+["']([^"']+)["']/);
   if (match) return match[1];
 
   return null;
