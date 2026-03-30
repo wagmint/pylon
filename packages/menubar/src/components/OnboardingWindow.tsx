@@ -9,8 +9,6 @@ import { StepIndicator } from "./onboarding/StepIndicator";
 
 const TOTAL_STEPS = 3;
 
-const steps = [OnboardingStep1, OnboardingStep2, OnboardingStep3];
-
 export function OnboardingWindow() {
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState<"right" | "left">("right");
@@ -39,7 +37,7 @@ export function OnboardingWindow() {
 
   const next = useCallback(() => {
     if (step === TOTAL_STEPS - 1) {
-      completeOnboarding(true);
+      completeOnboarding(false);
     } else {
       goTo(step + 1);
     }
@@ -47,9 +45,11 @@ export function OnboardingWindow() {
 
   const back = useCallback(() => goTo(step - 1), [step, goTo]);
 
-  // Keyboard navigation
+  // Keyboard navigation — suppress when input/textarea is focused
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "ArrowRight" || e.key === "Enter") next();
       else if (e.key === "ArrowLeft") back();
       else if (e.key === "Escape") completeOnboarding(false);
@@ -58,7 +58,14 @@ export function OnboardingWindow() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [next, back, completeOnboarding]);
 
-  const StepComponent = steps[step];
+  const renderStep = () => {
+    switch (step) {
+      case 0: return <OnboardingStep1 />;
+      case 1: return <OnboardingStep2 />;
+      case 2: return <OnboardingStep3 onJoinComplete={() => completeOnboarding(true)} />;
+      default: return null;
+    }
+  };
 
   return (
     <div className="w-[500px] h-[600px] flex flex-col bg-dash-bg border border-dash-border rounded-2xl overflow-hidden">
@@ -88,7 +95,7 @@ export function OnboardingWindow() {
           }`}
           onAnimationEnd={() => setAnimating(false)}
         >
-          <StepComponent />
+          {renderStep()}
         </div>
       </div>
 
@@ -120,7 +127,7 @@ export function OnboardingWindow() {
             onClick={next}
             className="text-xs font-medium text-dash-blue hover:text-dash-text transition-colors"
           >
-            {step === TOTAL_STEPS - 1 ? "Explore Dashboard \u2192" : "Next"}
+            {step === TOTAL_STEPS - 1 ? "Skip \u2192" : "Next"}
           </button>
         </div>
       </div>

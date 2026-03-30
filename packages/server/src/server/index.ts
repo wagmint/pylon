@@ -606,6 +606,31 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     return c.json({ ok: true });
   });
 
+  /** Look up invite token info from hexcore-relay */
+  app.get("/api/relay/invite-info", async (c) => {
+    const token = c.req.query("token");
+    if (!token) {
+      return c.json({ error: "Missing token parameter" }, 400);
+    }
+
+    const wsUrl = c.req.query("wsUrl") || "wss://relay.hexcore.app/ws";
+    const httpBase = deriveHttpBaseFromWs(wsUrl);
+
+    try {
+      const res = await fetch(`${httpBase}/api/invite-tokens/${encodeURIComponent(token)}/info`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          return c.json({ valid: false, error: "Invalid or expired invite token" }, 404);
+        }
+        return c.json({ valid: false, error: "Failed to look up invite token" }, 502);
+      }
+      const data = await res.json() as { hexcoreId?: string; hexcoreName?: string; memberCount?: number };
+      return c.json({ valid: true, ...data, wsUrl });
+    } catch {
+      return c.json({ valid: false, error: "Could not reach relay server" }, 502);
+    }
+  });
+
   /** Health check */
   app.get("/api/health", (c) => c.json({ status: "ok" }));
 
