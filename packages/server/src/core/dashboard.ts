@@ -1340,6 +1340,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   const agentsAtRisk = activeAgents.filter(a => a.risk.overallRisk !== "nominal").length;
   const blockedAgentCount = activeAgents.filter(a => a.status === "blocked").length;
   const totalTokens = activeAgents.reduce((sum, a) => sum + a.risk.totalTokens, 0);
+  const totalCost = activeAgents.reduce((sum, a) => sum + a.risk.costEstimate, 0);
   const summary: DashboardSummary = {
     totalAgents: activeAgents.length,
     activeAgents: activeAgents.length,
@@ -1352,6 +1353,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     blockedAgents: blockedAgentCount,
     operatorCount: operators.length,
     totalTokens,
+    totalCost,
   };
 
   const localPlanCollisions: DashboardState["localPlanCollisions"] = [];

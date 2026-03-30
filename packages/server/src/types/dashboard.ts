@@ -37,6 +37,7 @@ export interface AgentRisk {
   contextTokens: number;        // Raw avg input tokens (last 5 turns)
   avgTurnTimeMs: number | null; // avg of turn-to-turn deltas
   sessionDurationMs: number;    // last turn ts - first turn ts
+  costEstimate: number;         // estimated USD cost from pricing table
 }
 
 export interface WorkstreamRisk {
@@ -332,6 +333,7 @@ export interface DashboardSummary {
   blockedAgents: number;
   operatorCount: number;
   totalTokens: number;
+  totalCost: number;
 }
 
 export interface DashboardState {

@@ -94,8 +94,9 @@ export function TopBar({ summary, operators, relayStatus, onRelayClick }: TopBar
           {summary.totalCommits} commit{summary.totalCommits !== 1 ? "s" : ""}
         </span>
         {summary.totalTokens > 0 && (
-          <span className="text-dash-text-muted text-xs font-mono" title="Recorded tokens from active sessions">
+          <span className="text-dash-text-muted text-xs font-mono" title="Estimated cost from pricing table">
             {formatTokens(summary.totalTokens)} tokens
+            {summary.totalCost > 0 && !isNaN(summary.totalCost) && ` · $${summary.totalCost.toFixed(2)}`}
           </span>
         )}
       </div>

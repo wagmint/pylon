@@ -37,6 +37,7 @@ export interface AgentRisk {
   contextTokens: number;
   avgTurnTimeMs: number | null;
   sessionDurationMs: number;
+  costEstimate: number;
 }
 
 export interface WorkstreamRisk {
@@ -261,6 +262,7 @@ export interface DashboardSummary {
   blockedAgents: number;
   operatorCount: number;
   totalTokens: number;
+  totalCost: number;
 }
 
 export interface DashboardState {

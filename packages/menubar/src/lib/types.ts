@@ -34,6 +34,7 @@ export interface AgentRisk {
   contextTokens: number;
   avgTurnTimeMs: number | null;
   sessionDurationMs: number;
+  costEstimate: number;
 }
 
 export type AgentStatus = "idle" | "busy" | "warning" | "conflict" | "blocked";
@@ -113,6 +114,7 @@ export interface DashboardSummary {
   blockedAgents: number;
   operatorCount: number;
   totalTokens: number;
+  totalCost: number;
 }
 
 export interface DashboardState {

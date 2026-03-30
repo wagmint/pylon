@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type { DashboardState, Agent } from "@hexdeck/dashboard-ui";
 import { DecideButtons } from "@hexdeck/dashboard-ui";
 import { decideSession } from "@/lib/dashboard-api";
@@ -39,6 +39,23 @@ export function HomeView({ state }: HomeViewProps) {
     []
   );
 
+  // Aggregate model usage across all agents
+  const modelBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const agent of agents) {
+      for (const m of agent.risk.modelBreakdown) {
+        map.set(m.model, (map.get(m.model) ?? 0) + m.tokenCount);
+      }
+    }
+    const entries = [...map.entries()].sort((a, b) => b[1] - a[1]);
+    const total = entries.reduce((sum, [, tokens]) => sum + tokens, 0);
+    return entries.map(([model, tokens]) => ({
+      model: shortModelName(model),
+      tokens,
+      pct: total > 0 ? tokens / total : 0,
+    }));
+  }, [agents]);
+
   // Fall through to existing empty state when no workstreams exist
   if (workstreams.length === 0 && agents.length === 0) {
     return null;
@@ -46,12 +63,37 @@ export function HomeView({ state }: HomeViewProps) {
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin p-6">
-      {/* Summary stats */}
-      <div className="flex items-center gap-6 text-xs text-dash-text-muted mb-8">
-        <Stat label="Active Agents" value={summary.activeAgents} />
-        <Stat label="Blocked" value={summary.blockedAgents} highlight={summary.blockedAgents > 0} />
-        <Stat label="Commits" value={summary.totalCommits} />
-        <Stat label="Tokens" value={formatNumber(summary.totalTokens)} />
+      {/* Summary stats + model breakdown */}
+      <div className="inline-block mb-8">
+        <div className="flex items-center gap-6 text-xs text-dash-text-muted">
+          <Stat label="Active Agents" value={summary.activeAgents} />
+          <Stat label="Blocked" value={summary.blockedAgents} highlight={summary.blockedAgents > 0} />
+          <Stat label="Commits" value={summary.totalCommits} />
+          <Stat label="Tokens" value={formatNumber(summary.totalTokens)} />
+          <Stat label="Spend" value={formatCost(summary.totalCost)} />
+        </div>
+
+        {/* Model breakdown — bars constrained to stats row width */}
+        {modelBreakdown.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {modelBreakdown.map(({ model, pct }) => (
+              <div key={model} className="flex items-center gap-2">
+                <span className="text-2xs text-dash-text-muted w-20 shrink-0 truncate" title={model}>
+                  {model}
+                </span>
+                <div className="flex-1 h-1.5 bg-dash-surface-3 rounded-sm overflow-hidden">
+                  <div
+                    className="h-full rounded-sm bg-dash-blue"
+                    style={{ width: `${Math.round(pct * 100)}%` }}
+                  />
+                </div>
+                <span className="text-2xs text-dash-text-dim w-8 text-right tabular-nums">
+                  {Math.round(pct * 100)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Blocked agents panel */}
@@ -145,4 +187,33 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatCost(n: number): string {
+  if (!n || isNaN(n)) return "$0";
+  if (n < 0.01) return "$0";
+  if (n < 100) return `$${n.toFixed(2)}`;
+  return `$${Math.round(n)}`;
+}
+
+function shortModelName(model: string): string {
+  const l = model.toLowerCase();
+  if (l.startsWith("claude-opus-4-6")) return "Opus 4.6";
+  if (l.startsWith("claude-opus-4-5")) return "Opus 4.5";
+  if (l.startsWith("claude-opus-4-1")) return "Opus 4.1";
+  if (l.startsWith("claude-opus-4")) return "Opus 4";
+  if (l.startsWith("claude-sonnet-4-5")) return "Sonnet 4.5";
+  if (l.startsWith("claude-sonnet-4")) return "Sonnet 4";
+  if (l.startsWith("claude-sonnet-3")) return "Sonnet 3.5";
+  if (l.startsWith("claude-haiku-4-5")) return "Haiku 4.5";
+  if (l.startsWith("claude-haiku-3")) return "Haiku 3.5";
+  if (l.startsWith("gpt-5.3-codex")) return "GPT-5.3 Codex";
+  if (l.startsWith("gpt-5.2-codex")) return "GPT-5.2 Codex";
+  if (l.startsWith("gpt-5.1-codex-mini")) return "Codex Mini 5.1";
+  if (l.startsWith("gpt-5.1-codex")) return "Codex 5.1";
+  if (l.startsWith("gpt-5-codex")) return "Codex 5";
+  if (l.startsWith("codex-mini")) return "Codex Mini";
+  if (l.startsWith("o4-mini")) return "o4-mini";
+  if (l.startsWith("o3-mini")) return "o3-mini";
+  return model;
 }

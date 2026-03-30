@@ -1,4 +1,5 @@
 import type { ParsedSession, TurnNode, AgentRisk, WorkstreamRisk, SpinningSignal, RiskLevel, Agent, ModelUsage, SourceUsage } from "../types/index.js";
+import { computeTurnCost } from "./pricing.js";
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 
@@ -70,8 +71,10 @@ export function computeAgentRisk(
   const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
   const modelMap = new Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>();
   const sourceMap = new Map<"claude" | "codex", { tokenCount: number; turnCount: number }>();
+  let costEstimate = 0;
   for (const turn of turns) {
     const tokenCount = getRecordedTokens(turn);
+    costEstimate += computeTurnCost(turn.model, turn.tokenUsage);
     const sourceEntry = sourceMap.get(source) ?? { tokenCount: 0, turnCount: 0 };
     sourceEntry.tokenCount += tokenCount;
     sourceEntry.turnCount += 1;
@@ -143,6 +146,7 @@ export function computeAgentRisk(
     contextTokens: currentContextTokens,
     avgTurnTimeMs,
     sessionDurationMs,
+    costEstimate,
   };
 }
 
