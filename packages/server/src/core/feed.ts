@@ -141,7 +141,7 @@ export function buildFeed(
             sessionId,
             projectPath,
             operatorId,
-            message: `Completed: ${task ?? `task #${tu.taskId}`}`,
+            message: task ?? `task #${tu.taskId}`,
           });
         }
       }
