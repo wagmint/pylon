@@ -201,7 +201,7 @@ function buildSingleCodexTurn(events: CodexEvent[], index: number, sessionModel:
     commands.push(cmdStr);
     toolCounts["shell_command"] = (toolCounts["shell_command"] ?? 0) + 1;
 
-    if (isGitCommitCommand(cmdStr)) {
+    if (exec.exitCode === 0 && isGitCommitCommand(cmdStr)) {
       hasCommit = true;
       commitMessage = extractCodexCommitMessage(cmdStr);
     }
