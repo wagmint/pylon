@@ -1161,6 +1161,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     p.status !== "none"
     && p.status !== "rejected"
     && !(p.status === "drafting" && !p.markdown && !p.draftingActivity)
+    // Task-only pseudo-plans (no markdown / no plan mode) belong in the feed, not the plans section
+    && p.markdown !== null
   );
 
   const workstreams: Workstream[] = [];
@@ -1328,7 +1330,19 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       turns: parsed.turns,
     });
   }
-  const feed = buildFeed(parsedSessions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds, spinningBySession);
+  // Collect task IDs that belong to real plans (have markdown) — these are
+  // shown in "Recently Completed" and should not duplicate in the activity feed.
+  const planTaskKeys = new Set<string>();
+  for (const agent of agents) {
+    for (const plan of agent.plans) {
+      if (plan.markdown) {
+        for (const task of plan.tasks) {
+          planTaskKeys.add(`${agent.sessionId}:${task.id}`);
+        }
+      }
+    }
+  }
+  const feed = buildFeed(parsedSessions, labelMap, activeSessionIds, sessionOperatorMap, stalledSessionIds, spinningBySession, planTaskKeys);
 
   // 9. Build operators — set status to "online" if any agents are active
   const operatorActiveSet = new Set<string>();
