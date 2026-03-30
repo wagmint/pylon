@@ -22,6 +22,7 @@ export function buildFeed(
   operatorMap?: Map<string, string>,
   stalledSessionIds?: Set<string>,
   spinningBySession?: Map<string, { signals: SpinningSignal[]; turns: TurnNode[] }>,
+  planTaskKeys?: Set<string>,
 ): FeedEvent[] {
   /** Resolve operatorId for a session */
   const opId = (sessionId: string) => operatorMap?.get(sessionId) ?? "self";
@@ -132,6 +133,8 @@ export function buildFeed(
 
       for (const tu of turn.taskUpdates) {
         if (tu.status === "completed") {
+          // Skip tasks that belong to a plan — they're shown in "Recently Completed" instead
+          if (planTaskKeys?.has(`${sessionId}:${tu.taskId}`)) continue;
           const task = findTaskSubject(session, tu.taskId);
           addEvent({
             id: `task-done-${sessionId}-${tu.taskId}-${turn.index}`,
