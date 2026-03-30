@@ -97,20 +97,20 @@ export function FeedItem({ event, isNew, onClick, onDecide }: FeedItemProps) {
     <div
       onClick={onClick}
       style={borderStyle}
-      className={`flex gap-2 px-3.5 py-2 border-b border-dash-border text-[10px] transition-colors hover:bg-dash-surface ${config.rowClass ?? ""} ${isNew ? "animate-flash-in" : ""} ${onClick ? "cursor-pointer" : ""}`}
+      className={`flex gap-2 px-3.5 py-2 border-b border-dash-border text-xs transition-colors hover:bg-dash-surface ${config.rowClass ?? ""} ${isNew ? "animate-flash-in" : ""} ${onClick ? "cursor-pointer" : ""}`}
     >
-      <div className="text-[9px] text-dash-text-muted whitespace-nowrap min-w-[40px]">
+      <div className="text-2xs text-dash-text-muted whitespace-nowrap min-w-[40px]">
         {timeAgo(event.timestamp)}
       </div>
       <div
-        className={`w-4 h-4 rounded-sm flex items-center justify-center text-[9px] shrink-0 ${config.iconClass}`}
+        className={`w-4 h-4 rounded-sm flex items-center justify-center text-2xs shrink-0 ${config.iconClass}`}
       >
         {config.icon}
       </div>
       <div className="flex-1 leading-relaxed text-dash-text-dim">
         <span className="text-dash-text font-semibold">{event.agentLabel}</span>
         {operator && (
-          <span className="text-[8px] font-mono ml-0.5" style={{ color: operator.color }}>
+          <span className="text-2xs font-mono ml-0.5" style={{ color: operator.color }}>
             [{operator.name}]
           </span>
         )}

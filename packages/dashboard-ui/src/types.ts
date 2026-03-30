@@ -37,6 +37,7 @@ export interface AgentRisk {
   contextTokens: number;
   avgTurnTimeMs: number | null;
   sessionDurationMs: number;
+  costEstimate: number;
 }
 
 export interface WorkstreamRisk {
@@ -76,6 +77,24 @@ export interface Operator {
   name: string;
   color: string;
   status: OperatorStatus;
+}
+
+// ─── Turn Summary Types ─────────────────────────────────────────────────
+
+export interface TurnSummary {
+  id: string;
+  timestamp: string;
+  role: "user" | "assistant";
+  userInstruction: string;
+  assistantPreview: string;
+  goalSummary: string | null;
+  actionSummary: string | null;
+  filesChanged: string[];
+  hasCommit: boolean;
+  commitMessage: string | null;
+  hasError: boolean;
+  model: string | null;
+  tokenUsage: { input: number; output: number } | null;
 }
 
 // ─── Dashboard Types ────────────────────────────────────────────────────────
@@ -127,6 +146,8 @@ export interface Agent {
   plans: SessionPlan[];
   risk: AgentRisk;
   operatorId: string;
+  recentTurns: TurnSummary[];
+  skippedTurnCount: number;
   blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
 
@@ -241,6 +262,7 @@ export interface DashboardSummary {
   blockedAgents: number;
   operatorCount: number;
   totalTokens: number;
+  totalCost: number;
 }
 
 export interface DashboardState {

@@ -35,16 +35,16 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
         </div>
         <div className="flex items-center gap-2">
           <span
-            className={`text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${
+            className={`text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded ${
               collision.severity === "critical"
-                ? "bg-dash-yellow-dim text-dash-yellow"
+                ? "bg-dash-red-dim text-dash-red"
                 : "bg-dash-yellow-dim text-dash-yellow"
             }`}
           >
             {collision.severity}
           </span>
           {isMultiOperator && collision.isCrossOperator && (
-            <span className="text-[8px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded bg-dash-purple/10 text-dash-purple">
+            <span className="text-2xs font-semibold tracking-widest uppercase px-1.5 py-0.5 rounded bg-dash-purple/10 text-dash-purple">
               CROSS-OPERATOR
             </span>
           )}
@@ -81,7 +81,7 @@ export function CollisionDetail({ collision, onDismiss }: CollisionDetailProps) 
         )}
       </div>
 
-      <div className="px-3.5 pb-2 text-[9px] text-dash-text-muted font-mono truncate">
+      <div className="px-3.5 pb-2 text-2xs text-dash-text-muted font-mono truncate">
         {collision.filePath}
       </div>
     </div>
@@ -109,19 +109,19 @@ function CollisionSide({
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-display font-semibold text-[11px]">{label}</span>
+          <span className="font-display font-semibold text-xs">{label}</span>
           {operator && (
             <span
-              className="text-[8px] font-semibold px-1 py-px rounded font-mono"
+              className="text-2xs font-semibold px-1 py-px rounded font-mono"
               style={{ color: operator.color, backgroundColor: operator.color + "20" }}
             >
               {operator.name}
             </span>
           )}
         </div>
-        <span className="text-[9px] text-dash-blue">{sessionId.slice(0, 8)}</span>
+        <span className="text-2xs text-dash-blue">{sessionId.slice(0, 8)}</span>
       </div>
-      <div className="text-[10px] text-dash-text-dim bg-dash-surface-2 rounded p-1.5 leading-relaxed">
+      <div className="text-xs text-dash-text-dim bg-dash-surface-2 rounded p-1.5 leading-relaxed">
         {lastAction}
       </div>
     </div>

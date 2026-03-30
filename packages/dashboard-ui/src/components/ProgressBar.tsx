@@ -32,10 +32,10 @@ export function ProgressBar({ workstream }: ProgressBarProps) {
   return (
     <div className="px-3.5 py-2 border-b border-dash-border">
       <div className="flex items-center justify-between">
-        <span className="font-display text-[11px] font-medium">
+        <span className="font-display text-xs font-medium">
           {workstream.name}
         </span>
-        <span className={`text-[10px] font-semibold ${pctColorClass}`}>
+        <span className={`text-xs font-semibold ${pctColorClass}`}>
           {pct}%
         </span>
       </div>
@@ -45,7 +45,7 @@ export function ProgressBar({ workstream }: ProgressBarProps) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="text-[9px] text-dash-text-muted mt-1">
+      <div className="text-2xs text-dash-text-muted mt-1">
         {hasTasks ? (
           <span>{tasksDone}/{workstream.planTasks.length} tasks</span>
         ) : (

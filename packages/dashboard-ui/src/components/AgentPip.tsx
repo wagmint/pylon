@@ -54,7 +54,7 @@ export function AgentPip({ status, onClick }: AgentPipProps) {
   return (
     <div
       onClick={onClick}
-      className={`w-3.5 h-3.5 shrink-0 rounded-sm ${config.bg} border ${config.border} flex items-center justify-center text-[7px] font-semibold ${config.text} ${config.animation ?? ""} ${onClick ? "cursor-pointer" : ""}`}
+      className={`w-3.5 h-3.5 shrink-0 rounded-sm ${config.bg} border ${config.border} flex items-center justify-center text-2xs font-semibold ${config.text} ${config.animation ?? ""} ${onClick ? "cursor-pointer" : ""}`}
     >
       {config.icon}
     </div>

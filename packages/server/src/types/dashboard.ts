@@ -37,6 +37,7 @@ export interface AgentRisk {
   contextTokens: number;        // Raw avg input tokens (last 5 turns)
   avgTurnTimeMs: number | null; // avg of turn-to-turn deltas
   sessionDurationMs: number;    // last turn ts - first turn ts
+  costEstimate: number;         // estimated USD cost from pricing table
 }
 
 export interface WorkstreamRisk {
@@ -80,6 +81,24 @@ export interface Operator {
   color: string;
   /** Online if any agents are active */
   status: OperatorStatus;
+}
+
+// ─── Turn Summary Types ──────────────────────────────────────────────────────
+
+export interface TurnSummary {
+  id: string;
+  timestamp: string;
+  role: "user" | "assistant";
+  userInstruction: string;
+  assistantPreview: string;
+  goalSummary: string | null;
+  actionSummary: string | null;
+  filesChanged: string[];
+  hasCommit: boolean;
+  commitMessage: string | null;
+  hasError: boolean;
+  model: string | null;
+  tokenUsage: { input: number; output: number } | null;
 }
 
 // ─── Dashboard Types ─────────────────────────────────────────────────────────
@@ -149,6 +168,10 @@ export interface Agent {
   risk: AgentRisk;
   /** Operator this agent belongs to */
   operatorId: string;
+  /** Recent turn summaries for context recap */
+  recentTurns: TurnSummary[];
+  /** Number of turns omitted between the init prompt and recent turns */
+  skippedTurnCount: number;
   /** What the agent is blocked on when status === "blocked". Array supports multiple parallel tool calls. */
   blockedOn?: Array<{ requestId: string; toolName: string; description: string; detail?: string }>;
 }
@@ -310,6 +333,7 @@ export interface DashboardSummary {
   blockedAgents: number;
   operatorCount: number;
   totalTokens: number;
+  totalCost: number;
 }
 
 export interface DashboardState {

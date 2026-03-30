@@ -1,7 +1,6 @@
 "use client";
 
 import type { Workstream, IntentTaskView, AgentStatus } from "../types";
-import { OperatorTag } from "./OperatorTag";
 import { timeAgo } from "../utils";
 
 interface WorkstreamNodeProps {
@@ -46,10 +45,10 @@ function MetricHelp({ text, align = "center" }: { text: string; align?: "left" |
 
   return (
     <span className="relative inline-flex items-center group z-30">
-      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-dash-border text-[8px] text-dash-text-muted cursor-help">
+      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-dash-border text-2xs text-dash-text-muted cursor-help">
         ?
       </span>
-      <span className={`pointer-events-none absolute top-full z-[9999] mt-1.5 w-44 max-w-[12rem] rounded border border-dash-border bg-dash-surface px-1.5 py-1 text-[9px] leading-snug text-dash-text opacity-0 shadow-md transition-opacity group-hover:opacity-100 whitespace-normal ${posClass}`}>
+      <span className={`pointer-events-none absolute top-full z-[9999] mt-1.5 w-44 max-w-[12rem] rounded border border-dash-border bg-dash-surface px-1.5 py-1 text-2xs leading-snug text-dash-text opacity-0 shadow-md transition-opacity group-hover:opacity-100 whitespace-normal ${posClass}`}>
         {text}
       </span>
     </span>
@@ -65,13 +64,40 @@ function renderTask(task: IntentTaskView) {
   const evidence = pieces.join(" \u2022 ");
 
   return (
-    <div key={task.id} className="flex items-center gap-1.5 text-[10px] text-dash-text-dim">
-      <span className={`text-[9px] w-3 text-center shrink-0 ${icon.className}`}>{icon.char}</span>
+    <div key={task.id} className="flex items-center gap-1.5 text-xs text-dash-text-dim">
+      <span className={`text-2xs w-3 text-center shrink-0 ${icon.className}`}>{icon.char}</span>
       <span className="truncate">{task.subject}</span>
       {task.ownerLabel && <span className="text-dash-blue shrink-0">{task.ownerLabel}</span>}
-      {evidence && <span className="text-[9px] text-dash-text-muted truncate">{evidence}</span>}
+      {evidence && <span className="text-2xs text-dash-text-muted truncate">{evidence}</span>}
     </div>
   );
+}
+
+function riskDotClass(level: "green" | "yellow" | "red"): string {
+  if (level === "green") return "bg-dash-green";
+  if (level === "yellow") return "bg-dash-yellow";
+  return "bg-dash-red";
+}
+
+function contextRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const worst = Math.max(0, ...workstream.agents.map(a => a.risk.contextUsagePct));
+  if (worst >= 80) return "red";
+  if (worst >= 60) return "yellow";
+  return "green";
+}
+
+function errorRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const rate = workstream.risk.errorRate;
+  if (rate >= 15) return "red";
+  if (rate >= 5) return "yellow";
+  return "green";
+}
+
+function stallRisk(workstream: Workstream): "green" | "yellow" | "red" {
+  const total = workstream.agents.reduce((sum, a) => sum + a.risk.spinningSignals.length, 0);
+  if (total >= 2) return "red";
+  if (total >= 1) return "yellow";
+  return "green";
 }
 
 function getCodexBadge(workstream: Workstream): { label: string; className: string } {
@@ -101,14 +127,20 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
       <div className={`w-[3px] min-h-[32px] rounded-sm ${statusColor} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="font-display font-semibold text-[11px]">
+          <span className="font-display font-semibold text-xs">
             {workstream.name}
           </span>
-          <span className={`text-[8px] font-semibold px-1 py-px rounded ${badge.className}`}>
+          <span className={`text-2xs font-semibold px-1 py-px rounded ${badge.className}`}>
             {badge.label}
           </span>
         </div>
-        <div className="flex gap-2.5 text-[9px] text-dash-text-muted">
+        <div className="w-full h-1 rounded-full bg-dash-surface-2 mb-0.5">
+          <div
+            className="h-1 rounded-full bg-dash-green"
+            style={{ width: `${Math.min(100, workstream.completionPct)}%` }}
+          />
+        </div>
+        <div className="flex gap-2.5 text-2xs text-dash-text-muted">
           <span className="text-dash-green">
             {workstream.agents.filter((a) => a.isActive).length} active
           </span>
@@ -147,23 +179,30 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
 
         <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1">
           {workstream.agents.map((agent) => (
-            <div key={agent.sessionId} className="flex items-center gap-1 text-[10px]">
+            <div key={agent.sessionId} className="flex items-center gap-1 text-xs">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${agentDot[agent.status]}`} />
               <span className="text-dash-text-dim">{agent.label}</span>
-              <span className={`text-[7px] font-semibold px-0.5 rounded font-mono ${
-                agent.agentType === "codex"
-                  ? "text-dash-green/70"
-                  : "text-dash-blue/70"
-              }`}>
-                {agent.agentType === "codex" ? "codex" : "claude"}
-              </span>
-              <OperatorTag operatorId={agent.operatorId} />
             </div>
           ))}
         </div>
 
+        <div className="flex gap-3 mt-1 text-2xs text-dash-text-muted">
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(contextRisk(workstream))}`} />
+            Context
+          </span>
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(errorRisk(workstream))}`} />
+            Errors
+          </span>
+          <span className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${riskDotClass(stallRisk(workstream))}`} />
+            Stalls
+          </span>
+        </div>
+
         {!isCodex && workstream.driftReasons.length > 0 && (
-          <div className="mt-1 text-[9px] text-dash-yellow">
+          <div className="mt-1 text-2xs text-dash-yellow">
             {workstream.driftReasons.slice(0, 2).join(" \u2022 ")}
           </div>
         )}
@@ -171,7 +210,7 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
         <div className="mt-1.5 pl-1 space-y-1">
           {workstream.intentLanes.inProgress.length > 0 && (
             <div>
-              <div className="text-[9px] text-dash-blue mb-0.5">Planned + In Progress</div>
+              <div className="text-2xs text-dash-blue mb-0.5">Planned + In Progress</div>
               <div className="space-y-0.5">
                 {workstream.intentLanes.inProgress.slice(0, 4).map(renderTask)}
               </div>
@@ -179,7 +218,7 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
           )}
           {workstream.intentLanes.done.length > 0 && (
             <div>
-              <div className="text-[9px] text-dash-green mb-0.5">Planned + Done</div>
+              <div className="text-2xs text-dash-green mb-0.5">Planned + Done</div>
               <div className="space-y-0.5">
                 {workstream.intentLanes.done.slice(0, 3).map(renderTask)}
               </div>
@@ -187,7 +226,7 @@ export function WorkstreamNode({ workstream }: WorkstreamNodeProps) {
           )}
           {workstream.intentLanes.unplanned.length > 0 && (
             <div>
-              <div className="text-[9px] text-dash-yellow mb-0.5">Unplanned Work</div>
+              <div className="text-2xs text-dash-yellow mb-0.5">Unplanned Work</div>
               <div className="space-y-0.5">
                 {workstream.intentLanes.unplanned.slice(0, 3).map(renderTask)}
               </div>

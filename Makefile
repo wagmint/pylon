@@ -27,6 +27,7 @@ help:
 	@echo "  make rewind ID='abc123'       - Rewind to a checkpoint"
 	@echo "  make checkpoints              - List all checkpoints"
 	@echo "  make parse          - Run CLI parser (usage: make parse ARGS='projects')"
+	@echo "  make build-ui       - Build dashboard-ui package"
 	@echo "  make typecheck      - Run TypeScript type checking"
 	@echo "  make clean          - Remove build artifacts and node_modules"
 
@@ -137,6 +138,10 @@ install:
 .PHONY: build
 build:
 	$(NPM) run build
+
+.PHONY: build-ui
+build-ui:
+	$(NPM) run build --workspace=packages/dashboard-ui
 
 .PHONY: dashboard-version
 dashboard-version:

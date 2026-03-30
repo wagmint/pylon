@@ -12,6 +12,7 @@ import { buildFeed } from "./feed.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
+import { buildTurnSummaries } from "./turn-summaries.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import type {
@@ -1058,6 +1059,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
         })
       : undefined;
 
+    const turnResult = buildTurnSummaries(parsed.turns);
+
     agents.push({
       sessionId: parsed.session.id,
       label,
@@ -1071,6 +1074,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       plans,
       risk,
       operatorId: sessionOperatorMap.get(parsed.session.id) ?? "self",
+      recentTurns: turnResult.summaries,
+      skippedTurnCount: turnResult.skippedTurnCount,
       blockedOn,
     });
   }
@@ -1335,6 +1340,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   const agentsAtRisk = activeAgents.filter(a => a.risk.overallRisk !== "nominal").length;
   const blockedAgentCount = activeAgents.filter(a => a.status === "blocked").length;
   const totalTokens = activeAgents.reduce((sum, a) => sum + a.risk.totalTokens, 0);
+  const totalCost = activeAgents.reduce((sum, a) => sum + a.risk.costEstimate, 0);
   const summary: DashboardSummary = {
     totalAgents: activeAgents.length,
     activeAgents: activeAgents.length,
@@ -1347,6 +1353,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     blockedAgents: blockedAgentCount,
     operatorCount: operators.length,
     totalTokens,
+    totalCost,
   };
 
   const localPlanCollisions: DashboardState["localPlanCollisions"] = [];

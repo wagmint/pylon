@@ -32,11 +32,11 @@ export function RelayPanel({
 }: RelayPanelProps) {
 
   return (
-    <div className="flex flex-col h-full bg-dash-surface border-l border-dash-border font-mono text-[11px]">
+    <div className="flex flex-col h-full bg-dash-surface border-l border-dash-border font-mono text-xs">
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-10 border-b border-dash-border shrink-0">
         <div className="flex items-center gap-2.5">
-          <span className="text-[9px] font-semibold tracking-[1.5px] uppercase text-dash-text-muted">
+          <span className="text-2xs font-semibold tracking-[1.5px] uppercase text-dash-text-muted">
             Relay
           </span>
           <a
@@ -49,7 +49,7 @@ export function RelayPanel({
               <polygon points="512,232 746,367 746,657 512,792 278,657 278,367" fill="none" stroke="#22AAF8" strokeWidth="48" opacity="0.9" />
               <polygon points="512,418 618,479 618,601 512,662 406,601 406,479" fill="#4BCFFF" />
             </svg>
-            <span className="text-[9px] font-semibold tracking-wider">HEXCORE</span>
+            <span className="text-2xs font-semibold tracking-wider">HEXCORE</span>
           </a>
         </div>
         <button
@@ -108,7 +108,7 @@ function OnboardingCard({
         <div className="text-dash-text font-semibold text-xs">
           Join &ldquo;{onboarding.hexcoreName}&rdquo;
         </div>
-        <div className="text-dash-text-dim text-[10px]">
+        <div className="text-dash-text-dim text-xs">
           Sign in at hexcore.app to continue
         </div>
       </div>
@@ -116,14 +116,14 @@ function OnboardingCard({
       <div className="flex items-center justify-between gap-3">
         <button
           onClick={onOpenJoinUrl}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-dash-blue/10 border border-dash-blue/30 rounded text-[10px] text-dash-blue hover:bg-dash-blue/20 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-dash-blue/10 border border-dash-blue/30 rounded text-xs text-dash-blue hover:bg-dash-blue/20 transition-colors"
         >
           Open Hexcore
-          <span className="text-[9px]">&rarr;</span>
+          <span className="text-2xs">&rarr;</span>
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-dash-text-muted flex items-center gap-1.5">
+          <span className="text-xs text-dash-text-muted flex items-center gap-1.5">
             Waiting
             <span className="inline-block w-1 h-1 rounded-full bg-dash-blue animate-dash-pulse" />
           </span>
@@ -132,7 +132,7 @@ function OnboardingCard({
 
       <button
         onClick={onCancel}
-        className="text-[9px] text-dash-text-muted hover:text-dash-text transition-colors"
+        className="text-2xs text-dash-text-muted hover:text-dash-text transition-colors"
       >
         Cancel
       </button>
@@ -173,17 +173,17 @@ function TargetCard({
         <div className="flex items-center gap-2 min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot}`} />
           <span className="text-dash-text truncate font-semibold">{target.hexcoreName}</span>
-          <span className="text-dash-text-muted text-[9px] shrink-0">
+          <span className="text-dash-text-muted text-2xs shrink-0">
             {target.hexcoreId.slice(0, 8)}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-[9px] ${isAuthExpired ? "text-dash-red" : "text-dash-text-muted"}`}>
+          <span className={`text-2xs ${isAuthExpired ? "text-dash-red" : "text-dash-text-muted"}`}>
             {statusLabel}
           </span>
           <button
             onClick={() => onRemove(target.hexcoreId)}
-            className="text-[9px] text-dash-red/60 hover:text-dash-red transition-colors"
+            className="text-2xs text-dash-red/60 hover:text-dash-red transition-colors"
           >
             Remove
           </button>
@@ -191,7 +191,7 @@ function TargetCard({
       </div>
 
       {isAuthExpired && (
-        <div className="pt-1 border-t border-dash-border text-[10px] text-dash-red">
+        <div className="pt-1 border-t border-dash-border text-xs text-dash-red">
           This connection expired. Paste a new connect link to restore sync.
         </div>
       )}
@@ -210,7 +210,7 @@ function TargetCard({
                   <span className="text-dash-text-dim truncate" title={proj.projectPath}>
                     {abbreviatePath(proj.projectPath)}
                   </span>
-                  <span className="text-[9px] text-dash-text-muted shrink-0">
+                  <span className="text-2xs text-dash-text-muted shrink-0">
                     {proj.sessionCount} session{proj.sessionCount !== 1 ? "s" : ""}
                   </span>
                 </div>
