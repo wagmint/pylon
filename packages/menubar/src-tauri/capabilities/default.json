@@ -22,6 +22,7 @@
     "notification:allow-notify",
     "shell:allow-open",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "deep-link:default"
   ]
 }

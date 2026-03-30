@@ -10,7 +10,7 @@ import { getActiveCodexSessions } from "../discovery/codex.js";
 import { buildDashboardState, buildDashboardSnapshot } from "../core/dashboard.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
-import { parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
+import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -446,6 +446,36 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     }
   });
 
+  /** Deep link join — accepts params from hexdeck:// URL directly */
+  app.post("/api/relay/join", async (c) => {
+    const body = await c.req.json<{ inviteToken?: string; hexcoreId?: string; hexcoreName?: string; wsUrl?: string }>();
+    if (!body.inviteToken || !body.hexcoreId) {
+      return c.json({ error: "Missing inviteToken or hexcoreId" }, 400);
+    }
+
+    const wsUrl = body.wsUrl || "wss://relay.hexcore.app/ws";
+    const parsed: ParsedConnectLink = {
+      hexcoreId: body.hexcoreId,
+      hexcoreName: body.hexcoreName || "Unnamed Team",
+      wsUrl,
+      inviteToken: body.inviteToken,
+    };
+
+    try {
+      const claim = await createRelayClaim(parsed);
+      storeClaim({ ...claim, createdAt: Date.now() });
+      return c.json({
+        claimId: claim.claimId,
+        hexcoreName: claim.hexcoreName,
+        hexcoreId: claim.hexcoreId,
+        joinUrl: claim.joinUrl,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create claim";
+      return c.json({ error: message }, 400);
+    }
+  });
+
   /** Remove a relay target */
   app.delete("/api/relay/targets/:hexcoreId", (c) => {
     const { hexcoreId } = c.req.param();
@@ -486,8 +516,24 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   });
 
   /** Poll claim status — used during onboarding flow */
+  // Cache completed claims so subsequent polls still return "completed"
+  // (the actual claim gets removed after acknowledge, but pollers need to see the result)
+  const completedClaims = new Map<string, { hexcoreId: string; hexcoreName: string; completedAt: number }>();
+
   app.get("/api/relay/claim-status/:claimId", async (c) => {
     const { claimId } = c.req.param();
+
+    // Check completed cache first
+    const cached = completedClaims.get(claimId);
+    if (cached) {
+      // Auto-clean after 60s
+      if (Date.now() - cached.completedAt > 60_000) {
+        completedClaims.delete(claimId);
+      } else {
+        return c.json({ status: "completed", hexcoreId: cached.hexcoreId, hexcoreName: cached.hexcoreName });
+      }
+    }
+
     const claim = getClaim(claimId);
     if (!claim) {
       return c.json({ error: "Claim not found or expired" }, 404);
@@ -529,10 +575,19 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
           relayClientId: body.data.relayClientId,
           relayClientSecret: body.data.relayClientSecret,
         });
+
+        // Auto-relay all active sessions
+        const allSessions = [...getActiveSessions(), ...getActiveCodexSessions()];
+        const projectPaths = new Set(allSessions.map(s => s.projectPath));
+        for (const projectPath of projectPaths) {
+          relayManager.includeProject(claim.hexcoreId, projectPath);
+        }
+
         await fetch(`${httpBase}/api/relay-claims/${claimId}/acknowledge`, {
           method: "POST",
           headers: { "X-Claim-Secret": claim.claimSecret },
         }).catch(() => {});
+        completedClaims.set(claimId, { hexcoreId: claim.hexcoreId, hexcoreName: claim.hexcoreName, completedAt: Date.now() });
         removeClaim(claimId);
         if (shouldTickerRun()) startTicker();
         return c.json({ status: "completed", hexcoreId: claim.hexcoreId, hexcoreName: claim.hexcoreName });
@@ -549,6 +604,32 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     const { claimId } = c.req.param();
     removeClaim(claimId);
     return c.json({ ok: true });
+  });
+
+  /** Look up invite token info from hexcore-relay */
+  app.get("/api/relay/invite-info", async (c) => {
+    const token = c.req.query("token");
+    if (!token) {
+      return c.json({ error: "Missing token parameter" }, 400);
+    }
+
+    const wsUrl = c.req.query("wsUrl") || "wss://relay.hexcore.app/ws";
+    const httpBase = deriveHttpBaseFromWs(wsUrl);
+
+    try {
+      const res = await fetch(`${httpBase}/api/invite-tokens/${encodeURIComponent(token)}/info`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          return c.json({ valid: false, error: "Invalid or expired invite token" }, 404);
+        }
+        return c.json({ valid: false, error: "Failed to look up invite token" }, 502);
+      }
+      const body = await res.json() as { success?: boolean; data?: { valid?: boolean; hexcoreId?: string; hexcoreName?: string; memberCount?: number } };
+      const info = body.data ?? body;
+      return c.json({ valid: true, ...info, wsUrl });
+    } catch {
+      return c.json({ valid: false, error: "Could not reach relay server" }, 502);
+    }
   });
 
   /** Health check */

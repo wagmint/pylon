@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useHexcoreSSE } from "./hooks/useHexcoreSSE";
 import { useAlerts } from "./hooks/useAlerts";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
+import { useDeepLink } from "./hooks/useDeepLink";
 import { MenuBarApp } from "./components/MenuBarApp";
 import { WidgetApp } from "./components/WidgetApp";
 import { OnboardingWindow } from "./components/OnboardingWindow";
@@ -20,6 +21,7 @@ function MainApp() {
   useAutoUpdate();
   const { state, loading, error, connected } = useHexcoreSSE();
   const { alerts, severity } = useAlerts(state, connected);
+  const { toast: joinToast, clearToast: clearJoinToast } = useDeepLink(windowLabel === "main");
 
   if (windowLabel === "widget") {
     return (
@@ -30,6 +32,8 @@ function MainApp() {
         connected={connected}
         loading={loading}
         error={error}
+        joinToast={joinToast}
+        clearJoinToast={clearJoinToast}
       />
     );
   }
@@ -42,6 +46,8 @@ function MainApp() {
       connected={connected}
       loading={loading}
       error={error}
+      joinToast={joinToast}
+      clearJoinToast={clearJoinToast}
     />
   );
 }

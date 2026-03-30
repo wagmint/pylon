@@ -3,9 +3,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import type { DashboardState } from "../lib/types";
 import type { HexcoreAlert, TraySeverity } from "../lib/alerts";
+import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { StatusHeader } from "./StatusHeader";
 import { AlertList } from "./AlertList";
 import { AgentList } from "./AgentList";
+import { JoinToast } from "./JoinToast";
 
 interface MenuBarAppProps {
   state: DashboardState | null;
@@ -14,6 +16,8 @@ interface MenuBarAppProps {
   connected: boolean;
   loading: boolean;
   error: string | null;
+  joinToast: JoinToastType | null;
+  clearJoinToast: () => void;
 }
 
 export function MenuBarApp({
@@ -23,9 +27,19 @@ export function MenuBarApp({
   connected,
   loading,
   error,
+  joinToast,
+  clearJoinToast,
 }: MenuBarAppProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
+
+  // Auto-dismiss join toast after 15 seconds
+  useEffect(() => {
+    if (!joinToast) return;
+    const timer = setTimeout(clearJoinToast, 15000);
+    return () => clearTimeout(timer);
+  }, [joinToast, clearJoinToast]);
+
   const closeWindow = () => {
     getCurrentWindow().hide();
   };
@@ -74,6 +88,10 @@ export function MenuBarApp({
               Is the Hexdeck server running?
             </p>
           </div>
+        )}
+
+        {joinToast && (
+          <JoinToast toast={joinToast} onDismiss={clearJoinToast} />
         )}
 
         {!loading && state && (

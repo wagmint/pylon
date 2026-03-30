@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { TraySeverity, HexcoreAlert } from "../lib/alerts";
 import type { DashboardState } from "../lib/types";
 import type { WidgetState } from "../hooks/useWidgetState";
+import type { JoinToast } from "../hooks/useDeepLink";
 import { FaviconIcon } from "./FaviconIcon";
 import { SummaryPill } from "./SummaryPill";
 import { ExpandedCard } from "./ExpandedCard";
@@ -22,6 +23,8 @@ interface FloatingWidgetProps {
   connected: boolean;
   loading: boolean;
   error: string | null;
+  joinToast?: JoinToast | null;
+  clearJoinToast?: () => void;
 }
 
 export function FloatingWidget({
@@ -33,6 +36,8 @@ export function FloatingWidget({
   connected,
   loading,
   error,
+  joinToast,
+  clearJoinToast,
 }: FloatingWidgetProps) {
   // Drag-or-click: start drag only after 3px of movement, otherwise treat as click
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -113,6 +118,8 @@ export function FloatingWidget({
           loading={loading}
           error={error}
           onClose={widget.collapseToFavicon}
+          joinToast={joinToast}
+          clearJoinToast={clearJoinToast}
         />
       )}
     </div>

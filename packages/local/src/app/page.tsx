@@ -230,7 +230,6 @@ export default function DashboardPage() {
               targets={relay.targets}
               activeProjects={relay.activeProjects}
               pendingOnboarding={relay.pendingOnboarding}
-              onConnect={relay.connect}
               onRemove={relay.remove}
               onToggleProject={relay.toggleProject}
               onOpenJoinUrl={relay.openJoinUrl}

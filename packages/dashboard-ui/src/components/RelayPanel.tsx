@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { RelayTargetInfo, ActiveProject } from "../types";
 
 export interface PendingOnboarding {
@@ -14,7 +13,6 @@ export interface RelayPanelProps {
   targets: RelayTargetInfo[];
   activeProjects: ActiveProject[];
   pendingOnboarding: PendingOnboarding | null;
-  onConnect: (link: string) => Promise<{ error?: string; needsOnboarding?: boolean }>;
   onRemove: (hexcoreId: string) => void;
   onToggleProject: (hexcoreId: string, projectPath: string, include: boolean) => void;
   onOpenJoinUrl: () => void;
@@ -26,33 +24,12 @@ export function RelayPanel({
   targets,
   activeProjects,
   pendingOnboarding,
-  onConnect,
   onRemove,
   onToggleProject,
   onOpenJoinUrl,
   onCancelOnboarding,
   onClose,
 }: RelayPanelProps) {
-  const [link, setLink] = useState("");
-  const [connectError, setConnectError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
-
-  const handleConnect = async () => {
-    if (!link.trim()) return;
-    setConnecting(true);
-    setConnectError(null);
-    const result = await onConnect(link.trim());
-    setConnecting(false);
-    if (result.error) {
-      setConnectError(result.error);
-    } else {
-      setLink("");
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleConnect();
-  };
 
   return (
     <div className="flex flex-col h-full bg-dash-surface border-l border-dash-border font-mono text-xs">
@@ -93,36 +70,10 @@ export function RelayPanel({
           />
         )}
 
-        {/* Connect section — hidden during onboarding */}
-        {!pendingOnboarding && (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="hexcore+wss://..."
-                className="flex-1 bg-dash-bg border border-dash-border rounded px-2 py-1 text-xs font-mono text-dash-text placeholder:text-dash-text-muted focus:outline-none focus:border-dash-blue"
-              />
-              <button
-                onClick={handleConnect}
-                disabled={connecting || !link.trim()}
-                className="px-3 py-1 bg-dash-surface-3 border border-dash-border rounded text-xs text-dash-text-dim hover:text-dash-text hover:bg-dash-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {connecting ? "..." : "Connect"}
-              </button>
-            </div>
-            {connectError && (
-              <div className="text-dash-red text-xs">{connectError}</div>
-            )}
-          </div>
-        )}
-
         {/* Target cards */}
         {targets.length === 0 && !pendingOnboarding ? (
           <div className="text-center text-dash-text-muted text-xs py-6">
-            No relay targets. Paste a connect link to get started.
+            No relay targets. Use an invite link to connect.
           </div>
         ) : (
           <div className="space-y-3">
