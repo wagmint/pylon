@@ -20,6 +20,7 @@ export function computeAgentRisk(
 ): AgentRisk {
   const { turns, stats } = parsed;
   const totalTurns = turns.length;
+  const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
 
   // Error rate
   const errorRate = totalTurns > 0 ? stats.errorTurns / totalTurns : 0;
@@ -58,7 +59,9 @@ export function computeAgentRisk(
     .map(([file, count]) => ({ file: shortPath(file), count }));
 
   // Spinning detection
-  const spinningSignals = detectSpinning(turns);
+  const spinningSignals = source === "codex"
+    ? detectCodexSpinning(turns)
+    : detectSpinning(turns);
 
   // Error trend — last 10 turns (use accumulated history if available for compaction continuity)
   const errorTrend = errorHistory
@@ -68,7 +71,6 @@ export function computeAgentRisk(
   // Overall risk = worst of all signals
   const overallRisk = computeOverallRisk(errorRate, correctionRatio, compactionProximity, spinningSignals, totalTurns);
 
-  const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
   const modelMap = new Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>();
   const sourceMap = new Map<"claude" | "codex", { tokenCount: number; turnCount: number }>();
   let costEstimate = 0;
@@ -231,6 +233,14 @@ export function detectSpinning(turns: TurnNode[]): SpinningSignal[] {
   }
 
   return signals;
+}
+
+function detectCodexSpinning(turns: TurnNode[]): SpinningSignal[] {
+  const baseSignals = detectSpinning(turns);
+  return baseSignals.filter((signal) => {
+    if (signal.pattern !== "repeated_tool") return true;
+    return !signal.detail.startsWith("file_patch:");
+  });
 }
 
 /**
