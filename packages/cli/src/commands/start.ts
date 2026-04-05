@@ -32,7 +32,7 @@ export async function startCommand(options: { port: number; foreground: boolean 
   if (foreground) {
     // Import and run directly
     const { startServer } = await import("@hexdeck/server");
-    startServer({ port, dashboardDir: dashboardDir ?? undefined });
+    await startServer({ port, dashboardDir: dashboardDir ?? undefined });
 
     savePid({
       pid: process.pid,

@@ -12,6 +12,7 @@ import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, c
 import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
+import { getStorageInfo, initStorage } from "../storage/db.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -633,7 +634,16 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   });
 
   /** Health check */
-  app.get("/api/health", (c) => c.json({ status: "ok" }));
+  app.get("/api/health", (c) => {
+    const storage = getStorageInfo();
+    return c.json({
+      status: "ok",
+      storage: {
+        dbPath: storage.dbPath,
+        initializedAt: storage.initializedAt,
+      },
+    });
+  });
 
   // ─── Static Dashboard Serving ─────────────────────────────────────────────
 
@@ -655,8 +665,9 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 
 // ─── Server Starter ──────────────────────────────────────────────────────────
 
-export function startServer(options?: StartServerOptions): ServerType {
+export async function startServer(options?: StartServerOptions): Promise<ServerType> {
   const port = options?.port ?? parseInt(process.env.PORT ?? "7433", 10);
+  await initStorage();
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

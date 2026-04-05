@@ -8,6 +8,7 @@ import { removeHooks } from "./core/blocked.js";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { releaseStateLock } from "./storage/lock.js";
 
 const args = process.argv.slice(2);
 
@@ -36,18 +37,12 @@ const logStream = createWriteStream(LOG_FILE, { flags: "a" });
 process.stdout.write = logStream.write.bind(logStream) as typeof process.stdout.write;
 process.stderr.write = logStream.write.bind(logStream) as typeof process.stderr.write;
 
-// Write PID file (same format as packages/cli/src/lib/process.ts PidInfo)
-const pidInfo = {
-  pid: process.pid,
-  port,
-  startedAt: new Date().toISOString(),
-  dashboardDir: dashboardDir ?? null,
-};
-writeFileSync(PID_FILE, JSON.stringify(pidInfo, null, 2));
-
 function cleanup() {
   try {
     removeHooks();
+  } catch {}
+  try {
+    releaseStateLock();
   } catch {}
   try {
     if (existsSync(PID_FILE)) {
@@ -60,4 +55,17 @@ function cleanup() {
 process.on("SIGTERM", cleanup);
 process.on("SIGINT", cleanup);
 
-startServer({ port, dashboardDir });
+startServer({ port, dashboardDir })
+  .then(() => {
+    const pidInfo = {
+      pid: process.pid,
+      port,
+      startedAt: new Date().toISOString(),
+      dashboardDir: dashboardDir ?? null,
+    };
+    writeFileSync(PID_FILE, JSON.stringify(pidInfo, null, 2));
+  })
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
