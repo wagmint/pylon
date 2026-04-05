@@ -30,6 +30,7 @@ export {
   listStoredErrors,
   listStoredPlanItems,
 } from "./storage/evidence.js";
+export { listStoredSessionState, type SessionStateRow, type DerivedSessionStatus } from "./storage/session-state.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";
