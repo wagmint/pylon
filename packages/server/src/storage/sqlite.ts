@@ -1,6 +1,7 @@
 export interface SqliteStatement {
   run(...params: unknown[]): unknown;
   get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
 }
 
 export interface SqliteDatabase {
@@ -21,6 +22,7 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
         const query = db.query(sql) as {
           run(...params: any[]): unknown;
           get(...params: any[]): unknown;
+          all(...params: any[]): unknown[];
         };
         return {
           run(...params: unknown[]) {
@@ -28,6 +30,9 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
           },
           get(...params: unknown[]) {
             return query.get(...params);
+          },
+          all(...params: unknown[]) {
+            return query.all(...params);
           },
         };
       },
@@ -47,6 +52,7 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
       const stmt = db.prepare(sql) as {
         run(...params: any[]): unknown;
         get(...params: any[]): unknown;
+        all(...params: any[]): unknown[];
       };
       return {
         run(...params: unknown[]) {
@@ -54,6 +60,9 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
         },
         get(...params: unknown[]) {
           return stmt.get(...params);
+        },
+        all(...params: unknown[]) {
+          return stmt.all(...params);
         },
       };
     },

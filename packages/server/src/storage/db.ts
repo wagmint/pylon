@@ -1,4 +1,5 @@
 import { acquireStateLock } from "./lock.js";
+import { ensureMigrationTables, runMigrations } from "./migrations.js";
 import { STATE_DB_PATH, ensureHexdeckDir } from "./paths.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 
@@ -7,6 +8,7 @@ let db: SqliteDatabase | null = null;
 export interface StorageInfo {
   dbPath: string;
   initializedAt: string;
+  schemaVersion: number;
 }
 
 let storageInfo: StorageInfo | null = null;
@@ -25,14 +27,8 @@ export async function initStorage(): Promise<SqliteDatabase> {
     PRAGMA foreign_keys = ON;
   `);
 
-  // Milestone 1 bootstrap schema: enough to prove durable ownership and
-  // initialization without committing to the full parsed-evidence model yet.
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  ensureMigrationTables(database);
+  const schemaVersion = runMigrations(database);
 
   const initializedAt = new Date().toISOString();
   const stmt = database.prepare(`
@@ -46,6 +42,7 @@ export async function initStorage(): Promise<SqliteDatabase> {
   storageInfo = {
     dbPath: STATE_DB_PATH,
     initializedAt: getMetaValue(database, "initialized_at") ?? initializedAt,
+    schemaVersion,
   };
   return db;
 }
@@ -62,6 +59,21 @@ export function getStorageInfo(): StorageInfo {
     throw new Error("Hexdeck storage has not been initialized");
   }
   return storageInfo;
+}
+
+export function withTransaction<T>(fn: () => T): T {
+  const database = getDb();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    database.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {}
+    throw error;
+  }
 }
 
 function getMetaValue(database: SqliteDatabase, key: string): string | null {

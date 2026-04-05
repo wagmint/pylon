@@ -13,6 +13,8 @@ import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
 import { getStorageInfo, initStorage } from "../storage/db.js";
+import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
+import { syncClaudeSessionsToStorage } from "../storage/sync.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -641,7 +643,17 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       storage: {
         dbPath: storage.dbPath,
         initializedAt: storage.initializedAt,
+        schemaVersion: storage.schemaVersion,
       },
+    });
+  });
+
+  /** Baseline storage inspection endpoint for M2 */
+  app.get("/api/storage/baseline", (c) => {
+    return c.json({
+      transcriptSources: listTranscriptSources(),
+      ingestionCheckpoints: listIngestionCheckpoints(),
+      sessions: listStoredClaudeSessions(),
     });
   });
 
@@ -668,6 +680,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 export async function startServer(options?: StartServerOptions): Promise<ServerType> {
   const port = options?.port ?? parseInt(process.env.PORT ?? "7433", 10);
   await initStorage();
+  syncClaudeSessionsToStorage();
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
