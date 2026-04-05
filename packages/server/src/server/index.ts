@@ -12,9 +12,9 @@ import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, c
 import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
-import { getStorageInfo, initStorage } from "../storage/db.js";
+import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
-import { syncClaudeSessionsToStorage } from "../storage/sync.js";
+import { getStorageSyncStatus, syncClaudeSessionsToStorage } from "../storage/sync.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -638,12 +638,27 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   /** Health check */
   app.get("/api/health", (c) => {
     const storage = getStorageInfo();
+    const disk = getStorageDiskUsage();
     return c.json({
       status: "ok",
       storage: {
         dbPath: storage.dbPath,
         initializedAt: storage.initializedAt,
         schemaVersion: storage.schemaVersion,
+        diskUsage: disk,
+      },
+    });
+  });
+
+  /** Storage status for UX and maintenance flows */
+  app.get("/api/storage/status", (c) => {
+    return c.json({
+      storage: getStorageInfo(),
+      diskUsage: getStorageDiskUsage(),
+      sync: getStorageSyncStatus(),
+      policy: {
+        retention: "retain_all_history_for_now",
+        compaction: "deferred",
       },
     });
   });
@@ -655,6 +670,26 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       ingestionCheckpoints: listIngestionCheckpoints(),
       sessions: listStoredClaudeSessions(),
     });
+  });
+
+  /** Rebuild the local parsed index and baseline storage from source transcripts. */
+  app.post("/api/storage/rebuild", async (c) => {
+    try {
+      await rebuildStorage();
+      const sync = syncClaudeSessionsToStorage("rebuilding");
+      return c.json({
+        ok: true,
+        storage: getStorageInfo(),
+        diskUsage: getStorageDiskUsage(),
+        sync: getStorageSyncStatus(),
+        rebuilt: sync,
+      });
+    } catch (error) {
+      return c.json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to rebuild local index",
+      }, 500);
+    }
   });
 
   // ─── Static Dashboard Serving ─────────────────────────────────────────────

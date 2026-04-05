@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 
 export const HEXDECK_DIR = join(homedir(), ".hexdeck");
 export const STATE_DB_PATH = join(HEXDECK_DIR, "state.db");
+export const STATE_DB_WAL_PATH = join(HEXDECK_DIR, "state.db-wal");
+export const STATE_DB_SHM_PATH = join(HEXDECK_DIR, "state.db-shm");
 export const STATE_LOCK_PATH = join(HEXDECK_DIR, "state.lock");
 
 export function ensureHexdeckDir(): string {
