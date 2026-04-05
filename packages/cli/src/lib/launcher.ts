@@ -17,4 +17,7 @@ function getArg(name: string): string | undefined {
 const port = parseInt(getArg("--port") ?? "7433", 10);
 const dashboardDir = getArg("--dashboard-dir") ?? undefined;
 
-startServer({ port, dashboardDir });
+void startServer({ port, dashboardDir }).catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
