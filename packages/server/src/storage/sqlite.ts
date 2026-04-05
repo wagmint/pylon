@@ -11,7 +11,7 @@ export interface SqliteDatabase {
 
 export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> {
   if (isBunRuntime()) {
-    const mod = await import("bun:sqlite");
+    const mod = await runtimeImport("bun:sqlite") as typeof import("bun:sqlite");
     const db = new mod.Database(path);
     return {
       exec(sql: string) {
@@ -37,7 +37,7 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
     };
   }
 
-  const mod = await import("node:sqlite");
+  const mod = await runtimeImport("node:sqlite") as typeof import("node:sqlite");
   const db = new mod.DatabaseSync(path);
   return {
     exec(sql: string) {
@@ -65,4 +65,10 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
 
 function isBunRuntime(): boolean {
   return typeof process !== "undefined" && typeof process.versions?.bun === "string";
+}
+
+function runtimeImport(specifier: string): Promise<unknown> {
+  return new Function("s", "return import(s)")(
+    specifier,
+  ) as Promise<unknown>;
 }
