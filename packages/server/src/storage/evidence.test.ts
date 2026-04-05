@@ -2,22 +2,35 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type {
+  StoredApprovalRow,
+  StoredCommandRow,
+  StoredCommitRow,
+  StoredErrorRow,
+  StoredEventRow,
+  StoredFileTouchRow,
+  StoredMessageRow,
+  StoredPlanItemRow,
+  StoredToolCallRow,
+  StoredToolResultRow,
+  StoredTurnRow,
+} from "./evidence.js";
 
 interface LoadedModules {
   closeStorage: () => void;
   initStorage: () => Promise<unknown>;
   syncClaudeSessionsToStorage: () => { projectCount: number; sessionCount: number };
-  listStoredTurns: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredEvents: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredMessages: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredToolCalls: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredToolResults: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredFileTouches: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredCommands: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredCommits: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredApprovals: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredErrors: (sessionId?: string) => Array<Record<string, unknown>>;
-  listStoredPlanItems: (sessionId?: string) => Array<Record<string, unknown>>;
+  listStoredTurns: (sessionId?: string) => StoredTurnRow[];
+  listStoredEvents: (sessionId?: string) => StoredEventRow[];
+  listStoredMessages: (sessionId?: string) => StoredMessageRow[];
+  listStoredToolCalls: (sessionId?: string) => StoredToolCallRow[];
+  listStoredToolResults: (sessionId?: string) => StoredToolResultRow[];
+  listStoredFileTouches: (sessionId?: string) => StoredFileTouchRow[];
+  listStoredCommands: (sessionId?: string) => StoredCommandRow[];
+  listStoredCommits: (sessionId?: string) => StoredCommitRow[];
+  listStoredApprovals: (sessionId?: string) => StoredApprovalRow[];
+  listStoredErrors: (sessionId?: string) => StoredErrorRow[];
+  listStoredPlanItems: (sessionId?: string) => StoredPlanItemRow[];
 }
 
 const tempRoots: string[] = [];

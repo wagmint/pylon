@@ -260,6 +260,30 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_plan_items_session_turn_index ON plan_items(session_id, turn_index)`,
     ],
   },
+  {
+    id: 3,
+    name: "session_state_model",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS session_state (
+        session_id TEXT PRIMARY KEY,
+        derived_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_goal TEXT NOT NULL,
+        last_meaningful_action TEXT NOT NULL,
+        resume_summary TEXT NOT NULL,
+        blocked_reason TEXT,
+        pending_approval_count INTEGER NOT NULL DEFAULT 0,
+        files_in_play_json TEXT NOT NULL,
+        last_turn_index INTEGER,
+        last_event_at TEXT,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_session_state_status ON session_state(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_state_last_event_at ON session_state(last_event_at)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {

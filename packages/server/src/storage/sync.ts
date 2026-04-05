@@ -3,6 +3,7 @@ import { listProjects, listSessions } from "../discovery/sessions.js";
 import type { SessionInfo } from "../types/index.js";
 import { withTransaction } from "./db.js";
 import { replaceClaudeParsedEvidence } from "./evidence.js";
+import { deriveAndStoreSessionState } from "./session-state.js";
 import {
   ensureClaudeIngestionCheckpoint,
   getClaudeIngestionCheckpoint,
@@ -52,6 +53,7 @@ export function syncClaudeSessionsToStorage(
           ensureClaudeIngestionCheckpoint(transcriptSourceId);
           upsertClaudeSession(session, transcriptSourceId);
           ingestClaudeTranscriptSource(session, transcriptSourceId);
+          deriveAndStoreSessionState(session.id);
           seenSessionIds.push(session.id);
         }
       }
