@@ -1,5 +1,5 @@
 import { existsSync, rmSync, statSync } from "node:fs";
-import { acquireStateLock } from "./lock.js";
+import { acquireStateLock, releaseStateLock } from "./lock.js";
 import { ensureMigrationTables, runMigrations } from "./migrations.js";
 import { STATE_DB_PATH, STATE_DB_SHM_PATH, STATE_DB_WAL_PATH, ensureHexdeckDir } from "./paths.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
@@ -27,32 +27,37 @@ export async function initStorage(): Promise<SqliteDatabase> {
   ensureHexdeckDir();
   acquireStateLock();
 
-  const database = await openSqliteDatabase(STATE_DB_PATH);
-  database.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA synchronous = NORMAL;
-    PRAGMA busy_timeout = 5000;
-    PRAGMA foreign_keys = ON;
-  `);
+  try {
+    const database = await openSqliteDatabase(STATE_DB_PATH);
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
+      PRAGMA foreign_keys = ON;
+    `);
 
-  ensureMigrationTables(database);
-  const schemaVersion = runMigrations(database);
+    ensureMigrationTables(database);
+    const schemaVersion = runMigrations(database);
 
-  const initializedAt = new Date().toISOString();
-  const stmt = database.prepare(`
-    INSERT INTO schema_meta(key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO NOTHING
-  `);
-  stmt.run("initialized_at", initializedAt);
+    const initializedAt = new Date().toISOString();
+    const stmt = database.prepare(`
+      INSERT INTO schema_meta(key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING
+    `);
+    stmt.run("initialized_at", initializedAt);
 
-  db = database;
-  storageInfo = {
-    dbPath: STATE_DB_PATH,
-    initializedAt: getMetaValue(database, "initialized_at") ?? initializedAt,
-    schemaVersion,
-  };
-  return db;
+    db = database;
+    storageInfo = {
+      dbPath: STATE_DB_PATH,
+      initializedAt: getMetaValue(database, "initialized_at") ?? initializedAt,
+      schemaVersion,
+    };
+    return db;
+  } catch (error) {
+    releaseStateLock();
+    throw error;
+  }
 }
 
 export function getDb(): SqliteDatabase {
