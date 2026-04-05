@@ -1,7 +1,7 @@
 import type { SessionInfo } from "../types/index.js";
 import { getDb } from "./db.js";
 
-export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m2-baseline-v1";
+export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m2-evidence-v1";
 
 export interface TranscriptSourceRow {
   id: number;
@@ -261,21 +261,23 @@ export function upsertClaudeSession(session: SessionInfo, transcriptSourceId: nu
 
 export function markMissingClaudeTranscriptSourcesInactive(activeSessionIds: string[]): void {
   const db = getDb();
-  const activeSet = new Set(activeSessionIds);
-  const rows = db.prepare(`
-    SELECT id, session_id
-    FROM transcript_sources
-    WHERE source_type = 'claude' AND is_active = 1
-  `).all() as Array<{ id: number; session_id: string }>;
-
-  for (const row of rows) {
-    if (activeSet.has(row.session_id)) continue;
+  if (activeSessionIds.length === 0) {
     db.prepare(`
       UPDATE transcript_sources
       SET is_active = 0
-      WHERE id = ?
-    `).run(row.id);
+      WHERE source_type = 'claude' AND is_active = 1
+    `).run();
+    return;
   }
+
+  const placeholders = activeSessionIds.map(() => "?").join(", ");
+  db.prepare(`
+    UPDATE transcript_sources
+    SET is_active = 0
+    WHERE source_type = 'claude'
+      AND is_active = 1
+      AND session_id NOT IN (${placeholders})
+  `).run(...activeSessionIds);
 }
 
 export function listStoredClaudeSessions(): StoredSessionRow[] {

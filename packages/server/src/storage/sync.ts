@@ -1,6 +1,8 @@
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { listProjects, listSessions } from "../discovery/sessions.js";
+import type { SessionInfo } from "../types/index.js";
 import { withTransaction } from "./db.js";
+import { replaceClaudeParsedEvidence } from "./evidence.js";
 import {
   ensureClaudeIngestionCheckpoint,
   getClaudeIngestionCheckpoint,
@@ -48,8 +50,8 @@ export function syncClaudeSessionsToStorage(
         for (const session of sessions) {
           const transcriptSourceId = upsertClaudeTranscriptSource(session);
           ensureClaudeIngestionCheckpoint(transcriptSourceId);
-          ingestClaudeTranscriptSource(session.path, transcriptSourceId);
           upsertClaudeSession(session, transcriptSourceId);
+          ingestClaudeTranscriptSource(session, transcriptSourceId);
           seenSessionIds.push(session.id);
         }
       }
@@ -82,13 +84,13 @@ export function getStorageSyncStatus(): StorageSyncStatus {
   return lastSyncStatus;
 }
 
-function ingestClaudeTranscriptSource(filePath: string, transcriptSourceId: number): void {
+function ingestClaudeTranscriptSource(session: SessionInfo, transcriptSourceId: number): void {
   const checkpoint = getClaudeIngestionCheckpoint(transcriptSourceId);
   if (!checkpoint) {
     throw new Error(`Missing ingestion checkpoint for transcript source ${transcriptSourceId}`);
   }
 
-  const fileStat = statSync(filePath);
+  const fileStat = statSync(session.path);
   const fileSizeBytes = fileStat.size;
   const parserVersionChanged = checkpoint.parserVersion !== STORAGE_PARSER_VERSION;
   const fileShrank = checkpoint.lastProcessedByteOffset > fileSizeBytes;
@@ -113,7 +115,7 @@ function ingestClaudeTranscriptSource(filePath: string, transcriptSourceId: numb
   markClaudeIngestionCheckpointStatus(transcriptSourceId, "processing");
 
   try {
-    const progress = readClaudeTranscriptProgress(filePath, current.lastProcessedByteOffset, current.lastProcessedLine);
+    const progress = replaceClaudeParsedEvidence(session);
     updateClaudeIngestionCheckpointProgress(transcriptSourceId, progress, "ready");
   } catch (error) {
     markClaudeIngestionCheckpointStatus(
@@ -123,42 +125,4 @@ function ingestClaudeTranscriptSource(filePath: string, transcriptSourceId: numb
     );
     throw error;
   }
-}
-
-function readClaudeTranscriptProgress(
-  filePath: string,
-  startByteOffset: number,
-  existingLineCount: number,
-): {
-  lastProcessedLine: number;
-  lastProcessedByteOffset: number;
-  lastProcessedTimestamp: string | null;
-} {
-  const buffer = readFileSync(filePath);
-  const nextOffset = Math.max(0, Math.min(startByteOffset, buffer.length));
-  const chunk = buffer.subarray(nextOffset).toString("utf-8");
-  const appendedLines = chunk.split("\n").filter((line) => line.length > 0);
-  const totalLines = existingLineCount + appendedLines.length;
-  const lastProcessedTimestamp = extractLastTranscriptTimestamp(appendedLines);
-
-  return {
-    lastProcessedLine: totalLines,
-    lastProcessedByteOffset: buffer.length,
-    lastProcessedTimestamp,
-  };
-}
-
-function extractLastTranscriptTimestamp(lines: string[]): string | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(lines[i]) as { timestamp?: unknown };
-      if (typeof parsed.timestamp === "string") {
-        return parsed.timestamp;
-      }
-    } catch {
-      // Ignore malformed lines in the foundation track. Typed evidence parsing
-      // lands in the next milestone.
-    }
-  }
-  return null;
 }
