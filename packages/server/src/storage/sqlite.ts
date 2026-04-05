@@ -42,7 +42,7 @@ export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> 
     };
   }
 
-  const mod = await runtimeImport("node:sqlite") as typeof import("node:sqlite");
+  const mod = await loadNodeSqlite();
   const db = new mod.DatabaseSync(path);
   return {
     exec(sql: string) {
@@ -77,7 +77,19 @@ function isBunRuntime(): boolean {
 }
 
 function runtimeImport(specifier: string): Promise<unknown> {
-  return new Function("s", "return import(s)")(
-    specifier,
-  ) as Promise<unknown>;
+  // Keep the driver import runtime-resolved so Bun compile and Vitest do not
+  // try to statically bundle runtime-specific SQLite modules.
+  return import(/* @vite-ignore */ specifier) as Promise<unknown>;
+}
+
+async function loadNodeSqlite(): Promise<typeof import("node:sqlite")> {
+  try {
+    return await runtimeImport("node:sqlite") as typeof import("node:sqlite");
+  } catch (error) {
+    const version = process.versions?.node ?? "unknown";
+    throw new Error(
+      `Failed to load node:sqlite on Node ${version}. Hexdeck requires Bun or Node 22.5+ with the built-in SQLite module available.`,
+      { cause: error },
+    );
+  }
 }

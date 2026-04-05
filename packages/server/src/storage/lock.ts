@@ -3,6 +3,7 @@ import { isProcessRunning } from "../utils/process.js";
 import { STATE_LOCK_PATH, ensureHexdeckDir } from "./paths.js";
 
 let lockAcquired = false;
+let cleanupRegistered = false;
 const MAX_LOCK_ATTEMPTS = 3;
 
 interface LockPayload {
@@ -64,25 +65,10 @@ function readLockPayload(): LockPayload | null {
 }
 
 function registerCleanup(): void {
-  const cleanup = () => {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  process.once("exit", () => {
     releaseStateLock();
-  };
-  process.once("exit", cleanup);
-  process.once("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.once("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.once("uncaughtException", (error) => {
-    cleanup();
-    throw error;
-  });
-  process.once("unhandledRejection", (reason) => {
-    cleanup();
-    throw reason instanceof Error ? reason : new Error(String(reason));
   });
 }
 

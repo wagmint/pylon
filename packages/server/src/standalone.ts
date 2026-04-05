@@ -37,7 +37,7 @@ const logStream = createWriteStream(LOG_FILE, { flags: "a" });
 process.stdout.write = logStream.write.bind(logStream) as typeof process.stdout.write;
 process.stderr.write = logStream.write.bind(logStream) as typeof process.stderr.write;
 
-function cleanup() {
+function cleanup(exitCode = 0) {
   try {
     removeHooks();
   } catch {}
@@ -49,7 +49,7 @@ function cleanup() {
       unlinkSync(PID_FILE);
     }
   } catch {}
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 process.on("SIGTERM", cleanup);
@@ -63,7 +63,12 @@ startServer({ port, dashboardDir })
       startedAt: new Date().toISOString(),
       dashboardDir: dashboardDir ?? null,
     };
-    writeFileSync(PID_FILE, JSON.stringify(pidInfo, null, 2));
+    try {
+      writeFileSync(PID_FILE, JSON.stringify(pidInfo, null, 2));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      cleanup(1);
+    }
   })
   .catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));

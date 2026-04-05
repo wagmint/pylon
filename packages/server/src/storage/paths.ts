@@ -2,7 +2,11 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export const HEXDECK_DIR = join(homedir(), ".hexdeck");
+function resolveHomeDir(): string {
+  return process.env.HEXDECK_HOME_DIR ?? homedir();
+}
+
+export const HEXDECK_DIR = join(resolveHomeDir(), ".hexdeck");
 export const STATE_DB_PATH = join(HEXDECK_DIR, "state.db");
 export const STATE_DB_WAL_PATH = join(HEXDECK_DIR, "state.db-wal");
 export const STATE_DB_SHM_PATH = join(HEXDECK_DIR, "state.db-shm");

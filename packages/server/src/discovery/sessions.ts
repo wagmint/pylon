@@ -4,13 +4,17 @@ import { join, basename } from "path";
 import { homedir } from "os";
 import type { SessionInfo, ProjectInfo } from "../types/index.js";
 
-const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
+function getClaudeProjectsDir(claudeDir?: string): string {
+  if (claudeDir) return join(claudeDir, "projects");
+  if (process.env.HEXDECK_CLAUDE_DIR) return join(process.env.HEXDECK_CLAUDE_DIR, "projects");
+  return join(homedir(), ".claude", "projects");
+}
 
 /**
  * Get the Claude Code projects directory path.
  */
 export function getProjectsDir(): string {
-  return CLAUDE_PROJECTS_DIR;
+  return getClaudeProjectsDir();
 }
 
 /**
@@ -18,7 +22,7 @@ export function getProjectsDir(): string {
  * @param claudeDir Optional alternative .claude directory (defaults to ~/.claude)
  */
 export function listProjects(claudeDir?: string): ProjectInfo[] {
-  const projectsDir = claudeDir ? join(claudeDir, "projects") : CLAUDE_PROJECTS_DIR;
+  const projectsDir = getClaudeProjectsDir(claudeDir);
   if (!existsSync(projectsDir)) return [];
 
   const entries = readdirSync(projectsDir, { withFileTypes: true });
@@ -53,7 +57,7 @@ export function listProjects(claudeDir?: string): ProjectInfo[] {
  * @param claudeDir Optional alternative .claude directory (defaults to ~/.claude)
  */
 export function listSessions(projectIdentifier: string, claudeDir?: string): SessionInfo[] {
-  const projectsDir = claudeDir ? join(claudeDir, "projects") : CLAUDE_PROJECTS_DIR;
+  const projectsDir = getClaudeProjectsDir(claudeDir);
   // Try as encoded name first
   let projectDir = join(projectsDir, projectIdentifier);
 
@@ -73,7 +77,7 @@ export function listSessions(projectIdentifier: string, claudeDir?: string): Ses
  */
 export function findProjectForPath(workingDir: string): ProjectInfo | null {
   const encoded = encodeProjectPath(workingDir);
-  const projectDir = join(CLAUDE_PROJECTS_DIR, encoded);
+  const projectDir = join(getClaudeProjectsDir(), encoded);
 
   if (!existsSync(projectDir)) return null;
 
@@ -127,7 +131,8 @@ const ACTIVE_GRACE_MS = 5_000; // 5 seconds
 let lastActiveCheck = 0;
 
 export function getActiveSessions(): SessionInfo[] {
-  if (!existsSync(CLAUDE_PROJECTS_DIR)) return [];
+  const projectsDir = getClaudeProjectsDir();
+  if (!existsSync(projectsDir)) return [];
 
   try {
     // Use pgrep -f to find PIDs (matches full command line, not just kernel
@@ -232,7 +237,7 @@ export function getActiveSessions(): SessionInfo[] {
       if (seenProjects.has(encoded)) continue;
       seenProjects.add(encoded);
 
-      const projectDir = join(CLAUDE_PROJECTS_DIR, encoded);
+      const projectDir = join(projectsDir, encoded);
       if (!existsSync(projectDir)) continue;
 
       const projectSessions = listSessionsInDir(projectDir);

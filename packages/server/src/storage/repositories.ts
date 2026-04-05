@@ -1,7 +1,7 @@
 import type { SessionInfo } from "../types/index.js";
-import { getDb, withTransaction } from "./db.js";
+import { getDb } from "./db.js";
 
-export const STORAGE_PARSER_VERSION = "m2-baseline-v1";
+export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m2-baseline-v1";
 
 export interface TranscriptSourceRow {
   id: number;
@@ -25,6 +25,12 @@ export interface IngestionCheckpointRow {
   lastIngestedAt: string;
   status: string;
   errorMessage: string | null;
+}
+
+export interface IngestionCheckpointProgress {
+  lastProcessedLine: number;
+  lastProcessedByteOffset: number;
+  lastProcessedTimestamp: string | null;
 }
 
 export interface StoredSessionRow {
@@ -122,11 +128,95 @@ export function ensureClaudeIngestionCheckpoint(transcriptSourceId: number): voi
         WHEN ingestion_checkpoints.parser_version != excluded.parser_version THEN NULL
         ELSE ingestion_checkpoints.error_message
       END,
-      last_ingested_at = excluded.last_ingested_at
+      last_ingested_at = CASE
+        WHEN ingestion_checkpoints.parser_version != excluded.parser_version THEN excluded.last_ingested_at
+        ELSE ingestion_checkpoints.last_ingested_at
+      END
   `).run(
     transcriptSourceId,
     STORAGE_PARSER_VERSION,
     new Date().toISOString(),
+  );
+}
+
+export function getClaudeIngestionCheckpoint(
+  transcriptSourceId: number,
+): IngestionCheckpointRow | null {
+  const db = getDb();
+  return db.prepare(`
+    SELECT
+      id,
+      transcript_source_id as transcriptSourceId,
+      parser_version as parserVersion,
+      last_processed_line as lastProcessedLine,
+      last_processed_byte_offset as lastProcessedByteOffset,
+      last_processed_timestamp as lastProcessedTimestamp,
+      last_ingested_at as lastIngestedAt,
+      status,
+      error_message as errorMessage
+    FROM ingestion_checkpoints
+    WHERE transcript_source_id = ?
+  `).get(transcriptSourceId) as IngestionCheckpointRow | null;
+}
+
+export function markClaudeIngestionCheckpointStatus(
+  transcriptSourceId: number,
+  status: "pending" | "processing" | "ready" | "error",
+  errorMessage: string | null = null,
+): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE ingestion_checkpoints
+    SET
+      status = ?,
+      error_message = ?,
+      last_ingested_at = ?
+    WHERE transcript_source_id = ?
+  `).run(status, errorMessage, new Date().toISOString(), transcriptSourceId);
+}
+
+export function resetClaudeIngestionCheckpoint(
+  transcriptSourceId: number,
+  status: "pending" | "error" = "pending",
+  errorMessage: string | null = null,
+): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE ingestion_checkpoints
+    SET
+      last_processed_line = 0,
+      last_processed_byte_offset = 0,
+      last_processed_timestamp = NULL,
+      last_ingested_at = ?,
+      status = ?,
+      error_message = ?
+    WHERE transcript_source_id = ?
+  `).run(new Date().toISOString(), status, errorMessage, transcriptSourceId);
+}
+
+export function updateClaudeIngestionCheckpointProgress(
+  transcriptSourceId: number,
+  progress: IngestionCheckpointProgress,
+  status: "ready" | "pending" = "ready",
+): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE ingestion_checkpoints
+    SET
+      last_processed_line = ?,
+      last_processed_byte_offset = ?,
+      last_processed_timestamp = ?,
+      last_ingested_at = ?,
+      status = ?,
+      error_message = NULL
+    WHERE transcript_source_id = ?
+  `).run(
+    progress.lastProcessedLine,
+    progress.lastProcessedByteOffset,
+    progress.lastProcessedTimestamp,
+    new Date().toISOString(),
+    status,
+    transcriptSourceId,
   );
 }
 
