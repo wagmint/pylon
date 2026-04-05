@@ -4,12 +4,20 @@ export * from "./discovery/sessions.js";
 export * from "./core/nodes.js";
 export { createApp, startServer } from "./server/index.js";
 export type { StartServerOptions } from "./server/index.js";
-export { initStorage, getStorageInfo, getDb, withTransaction } from "./storage/db.js";
+export {
+  initStorage,
+  getStorageInfo,
+  getStorageDiskUsage,
+  rebuildStorage,
+  getDb,
+  withTransaction,
+} from "./storage/db.js";
 export {
   listTranscriptSources,
   listIngestionCheckpoints,
   listStoredClaudeSessions,
 } from "./storage/repositories.js";
+export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";
 export type { ParsedConnectLink, ExchangedRelayCredentials } from "./relay/link.js";
