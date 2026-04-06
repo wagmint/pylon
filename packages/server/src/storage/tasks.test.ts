@@ -121,6 +121,43 @@ describe("task extraction", () => {
     );
   });
 
+  it("uses commit messages as deterministic task signals when they are better than conversational goals", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-commit", [
+      line("2026-04-05T15:11:00.000Z", "user", "hello how are you"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:11:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Making the change." },
+          { type: "tool_use", id: "c1", name: "Edit", input: { file_path: "/tmp/demo/project/src/auth/magic-link.ts" } },
+          { type: "tool_use", id: "c2", name: "Bash", input: { command: 'git commit -m "Add magic link auth flow"' } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:11:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "c1", content: "edit ok" },
+          { type: "tool_result", tool_use_id: "c2", content: "[main abcdef1] Add magic link auth flow" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe("Add magic link auth flow");
+    expect(mod.listStoredTaskEvidence(tasks[0].id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ evidenceType: "commit_message", sourceTable: "commits" }),
+      ]),
+    );
+  });
+
   it("does not create bare Task N tasks from task_update events", async () => {
     const root = createFixtureRoot();
     createTranscript(root, "task-session-update", [
@@ -391,6 +428,63 @@ describe("task extraction", () => {
     expect(tasks).toHaveLength(1);
     const sessionTasks = mod.listStoredSessionTasks();
     expect(sessionTasks.filter((row) => row.taskId === tasks[0].id)).toHaveLength(2);
+  });
+
+  it("attaches orphan sessions to existing tasks through exact file overlap", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-existing-a", [
+      line("2026-04-05T15:22:00.000Z", "user", "Add auth middleware", "- Add auth middleware"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:22:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Implementing auth middleware." },
+          { type: "tool_use", id: "xa1", name: "Edit", input: { file_path: "/tmp/demo/project/src/auth/middleware.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:22:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "xa1", content: "ok" },
+        ],
+      }),
+    ]);
+    createTranscript(root, "task-session-existing-b", [
+      line("2026-04-05T15:23:00.000Z", "user", "hello how are you"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:23:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Continuing the work." },
+          { type: "tool_use", id: "xb1", name: "Edit", input: { file_path: "/tmp/demo/project/src/auth/middleware.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:23:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "xb1", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe("Add auth middleware");
+
+    const sessionTasks = mod.listStoredSessionTasks();
+    expect(sessionTasks.filter((row) => row.taskId === tasks[0].id)).toHaveLength(2);
+    expect(mod.listStoredTaskEvidence(tasks[0].id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ evidenceType: "existing_task_match", sourceTable: "tasks" }),
+        expect.objectContaining({ evidenceType: "file_overlap", sourceTable: "file_touches" }),
+      ]),
+    );
   });
 });
 

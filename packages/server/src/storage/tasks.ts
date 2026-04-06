@@ -73,6 +73,32 @@ interface CommandEvidenceRow {
   commandText: string;
 }
 
+interface CommitCandidateRow {
+  id: number;
+  turnIndex: number;
+  commitMessage: string | null;
+  commitSha: string | null;
+}
+
+interface UserMessageCandidateRow {
+  id: number;
+  text: string;
+}
+
+interface FileTouchCandidateRow {
+  filePath: string | null;
+  moduleKey: string | null;
+}
+
+interface ExistingTaskRow {
+  id: string;
+  canonicalKey: string;
+  title: string;
+  description: string | null;
+  taskType: TaskType;
+  confidence: number;
+}
+
 interface Candidate {
   canonicalKey: string;
   title: string;
@@ -144,6 +170,35 @@ export function deriveAndStoreTasksForSession(sessionId: string): void {
     ORDER BY id DESC
     LIMIT 3
   `).all(sessionId) as CommandEvidenceRow[];
+  const commits = db.prepare(`
+    SELECT
+      id,
+      turn_index as turnIndex,
+      commit_message as commitMessage,
+      commit_sha as commitSha
+    FROM commits
+    WHERE session_id = ?
+    ORDER BY turn_index DESC, id DESC
+    LIMIT 3
+  `).all(sessionId) as CommitCandidateRow[];
+  const userMessages = db.prepare(`
+    SELECT
+      id,
+      text
+    FROM messages
+    WHERE session_id = ?
+      AND role = 'user'
+    ORDER BY id DESC
+    LIMIT 6
+  `).all(sessionId) as UserMessageCandidateRow[];
+  const currentFileTouches = db.prepare(`
+    SELECT DISTINCT
+      file_path as filePath,
+      module_key as moduleKey
+    FROM file_touches
+    WHERE session_id = ?
+      AND file_path IS NOT NULL
+  `).all(sessionId) as FileTouchCandidateRow[];
 
   const filesInPlay = safeParseJsonArray(sessionState.filesInPlayJson);
   const candidates = deriveTaskCandidates({
@@ -158,6 +213,9 @@ export function deriveAndStoreTasksForSession(sessionId: string): void {
     planItems,
     filesInPlay,
     commands,
+    commits,
+    userMessages,
+    currentFileTouches,
   });
 
   db.prepare(`DELETE FROM task_evidence WHERE session_id = ?`).run(sessionId);
@@ -285,6 +343,9 @@ function deriveTaskCandidates(input: {
   planItems: PlanItemCandidateRow[];
   filesInPlay: string[];
   commands: CommandEvidenceRow[];
+  commits: CommitCandidateRow[];
+  userMessages: UserMessageCandidateRow[];
+  currentFileTouches: FileTouchCandidateRow[];
 }): Candidate[] {
   const candidates = new Map<string, Candidate>();
   const hasExecutionEvidence = hasStrongExecutionEvidence(input.sessionActivity);
@@ -315,6 +376,55 @@ function deriveTaskCandidates(input: {
       sourceRowId: String(item.id),
       snippet: item.rawText ?? resolvedTitle,
       confidence: 0.98,
+    });
+  }
+
+  for (const commit of input.commits) {
+    const commitTitle = commit.commitMessage?.trim();
+    if (!commitTitle || !shouldCreateCommitTask(commitTitle)) continue;
+    const canonicalKey = canonicalizeTaskKey(commitTitle);
+    if (!candidates.has(canonicalKey)) {
+      candidates.set(canonicalKey, {
+        canonicalKey,
+        title: commitTitle,
+        description: commit.commitSha ?? null,
+        taskType: "inferred",
+        confidence: 0.84,
+        relationshipType: "supporting",
+        evidence: [],
+      });
+    }
+    candidates.get(canonicalKey)!.evidence.push({
+      evidenceType: "commit_message",
+      sourceTable: "commits",
+      sourceRowId: String(commit.id),
+      snippet: commit.commitMessage,
+      confidence: 0.84,
+    });
+  }
+
+  const actionableUserMessage = candidates.size === 0
+    ? selectBestUserMessageCandidate(input.userMessages, input.sessionState.currentGoal, input.sessionActivity)
+    : null;
+  if (actionableUserMessage) {
+    const canonicalKey = canonicalizeTaskKey(actionableUserMessage.title);
+    if (!candidates.has(canonicalKey)) {
+      candidates.set(canonicalKey, {
+        canonicalKey,
+        title: actionableUserMessage.title,
+        description: null,
+        taskType: "inferred",
+        confidence: 0.79,
+        relationshipType: "primary",
+        evidence: [],
+      });
+    }
+    candidates.get(canonicalKey)!.evidence.push({
+      evidenceType: "user_message",
+      sourceTable: "messages",
+      sourceRowId: String(actionableUserMessage.id),
+      snippet: actionableUserMessage.title,
+      confidence: 0.79,
     });
   }
 
@@ -384,6 +494,36 @@ function deriveTaskCandidates(input: {
     }
   }
 
+  if (candidates.size === 0 && input.currentFileTouches.length > 0) {
+    for (const match of findExistingTaskMatches(input.projectPath, input.sessionId, input.currentFileTouches)) {
+      if (candidates.has(match.canonicalKey)) continue;
+      candidates.set(match.canonicalKey, {
+        canonicalKey: match.canonicalKey,
+        title: match.title,
+        description: match.description,
+        taskType: match.taskType,
+        confidence: match.confidence,
+        relationshipType: "supporting",
+        evidence: [
+          {
+            evidenceType: "existing_task_match",
+            sourceTable: "tasks",
+            sourceRowId: match.id,
+            snippet: match.title,
+            confidence: match.confidence,
+          },
+          {
+            evidenceType: match.sharedFileCount > 0 ? "file_overlap" : "module_overlap",
+            sourceTable: "file_touches",
+            sourceRowId: null,
+            snippet: match.snippet,
+            confidence: match.confidence,
+          },
+        ],
+      });
+    }
+  }
+
   if (
     candidates.size === 0
     && input.filesInPlay.length > 0
@@ -392,7 +532,7 @@ function deriveTaskCandidates(input: {
   ) {
     const cluster = describeFileCluster(input.projectPath, input.filesInPlay);
     if (!cluster) return [...candidates.values()];
-    const title = cluster ? `Work on ${cluster}` : "Inferred session work";
+    const title = `Work on ${cluster}`;
     const canonicalKey = canonicalizeTaskKey(title);
     candidates.set(canonicalKey, {
       canonicalKey,
@@ -416,6 +556,21 @@ function deriveTaskCandidates(input: {
   return [...candidates.values()];
 }
 
+function selectBestUserMessageCandidate(
+  userMessages: UserMessageCandidateRow[],
+  currentGoal: string,
+  activity: SessionActivityRow,
+): { id: number; title: string } | null {
+  const normalizedCurrentGoal = normalizeInferredTaskTitle(currentGoal);
+  for (const message of userMessages) {
+    const title = normalizeInferredTaskTitle(message.text);
+    if (!title || title === normalizedCurrentGoal) continue;
+    if (!shouldCreateInferredTask(title, activity)) continue;
+    return { id: message.id, title };
+  }
+  return null;
+}
+
 function resolvePlanItemTitle(
   item: PlanItemCandidateRow,
   taskCreateTitleById: Map<string, string>,
@@ -436,9 +591,19 @@ function shouldCreateInferredTask(title: string, activity: SessionActivityRow): 
   if (!isMeaningfulTaskTitle(normalized)) return false;
   if (normalized.length > 100) return false;
   if (looksLikePastedContent(title)) return false;
+  if (looksLikeGreeting(normalized)) return false;
   if (looksQuestionLike(normalized)) return false;
   if (!hasEnoughMeaningfulWords(normalized)) return false;
   return hasStrongExecutionEvidence(activity);
+}
+
+function shouldCreateCommitTask(title: string): boolean {
+  const normalized = normalizeInferredTaskTitle(title);
+  if (!isMeaningfulTaskTitle(normalized)) return false;
+  if (normalized.length > 120) return false;
+  if (looksLikePastedContent(title)) return false;
+  if (normalized.startsWith("[")) return false;
+  return hasEnoughMeaningfulWords(normalized);
 }
 
 function shouldCreateFallbackTask(title: string): boolean {
@@ -739,6 +904,15 @@ function looksLikePastedContent(text: string): boolean {
   return false;
 }
 
+function looksLikeGreeting(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (/^(hello|hi|hey)\b/.test(normalized)) return true;
+  if (/(how are you|good morning|good afternoon|good evening)\b/.test(normalized)) return true;
+  if (/^i just wanted to say hi\b/.test(normalized)) return true;
+  return false;
+}
+
 function safeParseJsonArray(raw: string): string[] {
   try {
     const parsed = JSON.parse(raw);
@@ -746,4 +920,120 @@ function safeParseJsonArray(raw: string): string[] {
   } catch {
     return [];
   }
+}
+
+function findExistingTaskMatches(
+  projectPath: string,
+  sessionId: string,
+  currentFileTouches: FileTouchCandidateRow[],
+): Array<{
+  id: string;
+  canonicalKey: string;
+  title: string;
+  description: string | null;
+  taskType: TaskType;
+  confidence: number;
+  sharedFileCount: number;
+  snippet: string;
+}> {
+  const db = getDb();
+  const existingTasks = db.prepare(`
+    SELECT
+      id,
+      canonical_key as canonicalKey,
+      title,
+      description,
+      task_type as taskType,
+      confidence
+    FROM tasks
+    WHERE project_path = ?
+  `).all(projectPath) as ExistingTaskRow[];
+  if (existingTasks.length === 0) return [];
+
+  const currentFiles = new Set(
+    currentFileTouches
+      .map((row) => row.filePath)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const currentModules = new Set(
+    currentFileTouches
+      .map((row) => row.moduleKey)
+      .filter((value): value is string => Boolean(value)),
+  );
+  if (currentFiles.size === 0 && currentModules.size === 0) return [];
+
+  const taskTouchRows = db.prepare(`
+    SELECT DISTINCT
+      session_tasks.task_id as taskId,
+      file_touches.file_path as filePath,
+      file_touches.module_key as moduleKey
+    FROM session_tasks
+    JOIN tasks ON tasks.id = session_tasks.task_id
+    JOIN file_touches ON file_touches.session_id = session_tasks.session_id
+    WHERE tasks.project_path = ?
+      AND session_tasks.is_active = 1
+      AND session_tasks.session_id != ?
+      AND file_touches.file_path IS NOT NULL
+  `).all(projectPath, sessionId) as Array<{
+    taskId: string;
+    filePath: string | null;
+    moduleKey: string | null;
+  }>;
+
+  const overlapByTask = new Map<string, {
+    sharedFiles: Set<string>;
+    sharedModules: Set<string>;
+  }>();
+
+  for (const row of taskTouchRows) {
+    const overlap = overlapByTask.get(row.taskId) ?? {
+      sharedFiles: new Set<string>(),
+      sharedModules: new Set<string>(),
+    };
+    if (row.filePath && currentFiles.has(row.filePath)) {
+      overlap.sharedFiles.add(row.filePath);
+    }
+    if (row.moduleKey && currentModules.has(row.moduleKey)) {
+      overlap.sharedModules.add(row.moduleKey);
+    }
+    overlapByTask.set(row.taskId, overlap);
+  }
+
+  return existingTasks
+    .map((task) => {
+      const overlap = overlapByTask.get(task.id);
+      if (!overlap) return null;
+      const sharedFileCount = overlap.sharedFiles.size;
+      const sharedModuleCount = overlap.sharedModules.size;
+      if (sharedFileCount === 0 && sharedModuleCount === 0) return null;
+
+      const confidence = sharedFileCount > 0
+        ? 0.82
+        : currentFiles.size >= 2
+          ? 0.68
+          : 0;
+      if (confidence === 0) return null;
+
+      const snippet = sharedFileCount > 0
+        ? [...overlap.sharedFiles].slice(0, 3).join(", ")
+        : [...overlap.sharedModules].slice(0, 3).join(", ");
+      return {
+        ...task,
+        confidence,
+        sharedFileCount,
+        snippet,
+      };
+    })
+    .filter((row): row is {
+      id: string;
+      canonicalKey: string;
+      title: string;
+      description: string | null;
+      taskType: TaskType;
+      confidence: number;
+      sharedFileCount: number;
+      snippet: string;
+    } => Boolean(row))
+    .sort((a, b) => b.sharedFileCount - a.sharedFileCount || b.confidence - a.confidence || a.title.localeCompare(b.title))
+    .slice(0, 3);
 }
