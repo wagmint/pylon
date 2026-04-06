@@ -532,6 +532,214 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workstream_state_status ON workstream_state(status)`,
     ],
   },
+  {
+    id: 7,
+    name: "artifacts_decisions_blockers",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        artifact_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        file_path TEXT,
+        commit_sha TEXT,
+        source_session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT,
+        FOREIGN KEY(source_session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS task_artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+        UNIQUE(task_id, artifact_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS session_artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+        UNIQUE(session_id, artifact_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+        UNIQUE(workstream_id, artifact_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS decisions (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        decision_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        decided_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS decision_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        decision_id TEXT NOT NULL,
+        source_table TEXT NOT NULL,
+        source_row_id TEXT,
+        snippet TEXT,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(decision_id) REFERENCES decisions(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS task_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        decision_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(decision_id) REFERENCES decisions(id) ON DELETE CASCADE,
+        UNIQUE(task_id, decision_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS session_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        decision_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY(decision_id) REFERENCES decisions(id) ON DELETE CASCADE,
+        UNIQUE(session_id, decision_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        decision_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        FOREIGN KEY(decision_id) REFERENCES decisions(id) ON DELETE CASCADE,
+        UNIQUE(workstream_id, decision_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS blockers (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        blocker_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        first_seen_at TEXT,
+        last_seen_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS blocker_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        blocker_id TEXT NOT NULL,
+        source_table TEXT NOT NULL,
+        source_row_id TEXT,
+        snippet TEXT,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(blocker_id) REFERENCES blockers(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS task_blockers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        blocker_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(blocker_id) REFERENCES blockers(id) ON DELETE CASCADE,
+        UNIQUE(task_id, blocker_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS session_blockers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        blocker_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY(blocker_id) REFERENCES blockers(id) ON DELETE CASCADE,
+        UNIQUE(session_id, blocker_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_blockers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        blocker_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        FOREIGN KEY(blocker_id) REFERENCES blockers(id) ON DELETE CASCADE,
+        UNIQUE(workstream_id, blocker_id)
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_artifacts_project_path ON artifacts(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_artifacts_task_id ON task_artifacts(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_artifacts_session_id ON session_artifacts(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_artifacts_workstream_id ON workstream_artifacts(workstream_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_decisions_project_path ON decisions(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_decision_evidence_decision_id ON decision_evidence(decision_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_decisions_task_id ON task_decisions(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_decisions_session_id ON session_decisions(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_decisions_workstream_id ON workstream_decisions(workstream_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blockers_project_path ON blockers(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocker_evidence_blocker_id ON blocker_evidence(blocker_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_blockers_task_id ON task_blockers(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_blockers_session_id ON session_blockers(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_blockers_workstream_id ON workstream_blockers(workstream_id)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
