@@ -7,6 +7,7 @@ import { deriveAndStoreSessionState } from "./session-state.js";
 import { deriveAndStoreTasksForSession } from "./tasks.js";
 import { deriveAndStoreWorkstreamsForProject } from "./workstreams.js";
 import { deriveAndStoreM6ForProject } from "./m6.js";
+import { deriveAndStoreHandoffsForProject } from "./handoffs.js";
 import {
   ensureClaudeIngestionCheckpoint,
   getClaudeIngestionCheckpoint,
@@ -67,6 +68,7 @@ export function syncClaudeSessionsToStorage(
       for (const projectPath of seenProjectPaths) {
         deriveAndStoreWorkstreamsForProject(projectPath);
         deriveAndStoreM6ForProject(projectPath);
+        deriveAndStoreHandoffsForProject(projectPath);
       }
 
       markMissingClaudeTranscriptSourcesInactive(seenSessionIds);
