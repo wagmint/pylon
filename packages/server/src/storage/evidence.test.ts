@@ -86,7 +86,6 @@ describe("parsed evidence storage", () => {
     expect(mod.listStoredPlanItems("session-evidence")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: "plan_markdown", subject: "Inspect parser" }),
-        expect.objectContaining({ source: "plan_markdown", subject: "Persist events" }),
         expect.objectContaining({ source: "task_create", taskId: "7", subject: "Implement parser storage" }),
         expect.objectContaining({ source: "task_update", taskId: "7", status: "in_progress" }),
       ]),

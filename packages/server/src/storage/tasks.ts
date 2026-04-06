@@ -51,6 +51,12 @@ interface SessionStateInfoRow {
   filesInPlayJson: string;
 }
 
+interface SessionActivityRow {
+  writeEditCount: number;
+  totalTouchCount: number;
+  commitCount: number;
+}
+
 interface PlanItemCandidateRow {
   id: number;
   turnIndex: number;
@@ -105,6 +111,15 @@ export function deriveAndStoreTasksForSession(sessionId: string): void {
   `).get(sessionId) as SessionStateInfoRow | undefined;
   if (!sessionState) return;
 
+  const sessionActivity = db.prepare(`
+    SELECT
+      SUM(CASE WHEN action IN ('write', 'edit') THEN 1 ELSE 0 END) as writeEditCount,
+      COUNT(*) as totalTouchCount,
+      (SELECT COUNT(*) FROM commits WHERE session_id = ?) as commitCount
+    FROM file_touches
+    WHERE session_id = ?
+  `).get(sessionId, sessionId) as SessionActivityRow | undefined;
+
   const planItems = db.prepare(`
     SELECT
       id,
@@ -135,6 +150,11 @@ export function deriveAndStoreTasksForSession(sessionId: string): void {
     sessionId,
     projectPath: session.projectPath,
     sessionState,
+    sessionActivity: {
+      writeEditCount: sessionActivity?.writeEditCount ?? 0,
+      totalTouchCount: sessionActivity?.totalTouchCount ?? 0,
+      commitCount: sessionActivity?.commitCount ?? 0,
+    },
     planItems,
     filesInPlay,
     commands,
@@ -261,19 +281,27 @@ function deriveTaskCandidates(input: {
   sessionId: string;
   projectPath: string;
   sessionState: SessionStateInfoRow;
+  sessionActivity: SessionActivityRow;
   planItems: PlanItemCandidateRow[];
   filesInPlay: string[];
   commands: CommandEvidenceRow[];
 }): Candidate[] {
   const candidates = new Map<string, Candidate>();
+  const hasExecutionEvidence = hasStrongExecutionEvidence(input.sessionActivity);
+  const taskCreateTitleById = new Map(
+    input.planItems
+      .filter((item) => item.source === "task_create" && item.taskId && isMeaningfulTaskTitle(item.subject))
+      .map((item) => [item.taskId!, item.subject.trim()]),
+  );
 
   for (const item of input.planItems) {
-    if (!isMeaningfulTaskTitle(item.subject)) continue;
-    const canonicalKey = canonicalizeTaskKey(item.subject);
+    const resolvedTitle = resolvePlanItemTitle(item, taskCreateTitleById);
+    if (!resolvedTitle || !isMeaningfulTaskTitle(resolvedTitle)) continue;
+    const canonicalKey = canonicalizeTaskKey(resolvedTitle);
     if (!candidates.has(canonicalKey)) {
       candidates.set(canonicalKey, {
         canonicalKey,
-        title: item.subject.trim(),
+        title: resolvedTitle,
         description: item.description ?? null,
         taskType: "explicit",
         confidence: 0.98,
@@ -285,18 +313,19 @@ function deriveTaskCandidates(input: {
       evidenceType: item.source,
       sourceTable: "plan_items",
       sourceRowId: String(item.id),
-      snippet: item.rawText ?? item.subject,
+      snippet: item.rawText ?? resolvedTitle,
       confidence: 0.98,
     });
   }
 
   const currentGoal = input.sessionState.currentGoal.trim();
-  const inferredGoalKey = canonicalizeTaskKey(currentGoal);
-  const shouldInferGoalTask = isMeaningfulTaskTitle(currentGoal) && !candidates.has(inferredGoalKey);
+  const normalizedGoal = normalizeInferredTaskTitle(currentGoal);
+  const inferredGoalKey = canonicalizeTaskKey(normalizedGoal);
+  const shouldInferGoalTask = shouldCreateInferredTask(currentGoal, input.sessionActivity) && !candidates.has(inferredGoalKey);
   if (shouldInferGoalTask) {
     const candidate: Candidate = {
       canonicalKey: inferredGoalKey,
-      title: currentGoal,
+      title: normalizedGoal,
       description: null,
       taskType: "inferred",
       confidence: 0.76,
@@ -306,7 +335,7 @@ function deriveTaskCandidates(input: {
           evidenceType: "session_goal",
           sourceTable: "session_state",
           sourceRowId: input.sessionId,
-          snippet: currentGoal,
+          snippet: normalizedGoal,
           confidence: 0.76,
         },
       ],
@@ -355,7 +384,7 @@ function deriveTaskCandidates(input: {
     }
   }
 
-  if (candidates.size === 0 && input.filesInPlay.length > 0) {
+  if (candidates.size === 0 && input.filesInPlay.length > 0 && hasExecutionEvidence) {
     const cluster = describeFileCluster(input.filesInPlay);
     const title = cluster ? `Work on ${cluster}` : "Inferred session work";
     const canonicalKey = canonicalizeTaskKey(title);
@@ -379,6 +408,47 @@ function deriveTaskCandidates(input: {
   }
 
   return [...candidates.values()];
+}
+
+function resolvePlanItemTitle(
+  item: PlanItemCandidateRow,
+  taskCreateTitleById: Map<string, string>,
+): string | null {
+  if (item.source === "task_update") {
+    if (item.taskId && taskCreateTitleById.has(item.taskId)) {
+      return taskCreateTitleById.get(item.taskId)!;
+    }
+    if (item.taskId && /^task\s+\d+$/i.test(item.subject.trim())) {
+      return null;
+    }
+  }
+  return item.subject.trim();
+}
+
+function shouldCreateInferredTask(title: string, activity: SessionActivityRow): boolean {
+  const normalized = normalizeInferredTaskTitle(title);
+  if (!isMeaningfulTaskTitle(normalized)) return false;
+  if (normalized.length > 100) return false;
+  if (looksQuestionLike(normalized)) return false;
+  return hasStrongExecutionEvidence(activity);
+}
+
+function hasStrongExecutionEvidence(activity: SessionActivityRow): boolean {
+  if (activity.writeEditCount >= 1) return true;
+  if (activity.totalTouchCount >= 2) return true;
+  if (activity.commitCount >= 1) return true;
+  return false;
+}
+
+function normalizeInferredTaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ").slice(0, 100);
+}
+
+function looksQuestionLike(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.endsWith("?")) return true;
+  return /^(who|what|when|where|why|how|is|are|can|could|would|should|does|did)\b/.test(normalized);
 }
 
 function upsertTask(input: {
