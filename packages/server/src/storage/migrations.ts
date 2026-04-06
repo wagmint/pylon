@@ -284,6 +284,65 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_session_state_last_event_at ON session_state(last_event_at)`,
     ],
   },
+  {
+    id: 4,
+    name: "task_extraction",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        canonical_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        task_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        source_session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT,
+        FOREIGN KEY(source_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        UNIQUE(project_path, canonical_key)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS session_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        UNIQUE(session_id, task_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS task_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        evidence_type TEXT NOT NULL,
+        source_table TEXT NOT NULL,
+        source_row_id TEXT,
+        snippet TEXT,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_tasks_project_path ON tasks(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_tasks_session_id ON session_tasks(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_tasks_task_id ON session_tasks(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_evidence_task_id ON task_evidence(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_evidence_session_id ON task_evidence(session_id)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {

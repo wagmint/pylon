@@ -31,6 +31,16 @@ export {
   listStoredPlanItems,
 } from "./storage/evidence.js";
 export { listStoredSessionState, type SessionStateRow, type DerivedSessionStatus } from "./storage/session-state.js";
+export {
+  listStoredTasks,
+  listStoredSessionTasks,
+  listStoredTaskEvidence,
+  type TaskRow,
+  type SessionTaskRow,
+  type TaskEvidenceRow,
+  type TaskStatus,
+  type TaskType,
+} from "./storage/tasks.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";

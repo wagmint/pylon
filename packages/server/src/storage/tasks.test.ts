@@ -1,0 +1,281 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import type { SessionTaskRow, TaskEvidenceRow, TaskRow } from "./tasks.js";
+
+interface LoadedModules {
+  initStorage: () => Promise<unknown>;
+  closeStorage: () => void;
+  syncClaudeSessionsToStorage: () => { projectCount: number; sessionCount: number };
+  listStoredTasks: (projectPath?: string) => TaskRow[];
+  listStoredSessionTasks: (sessionId?: string) => SessionTaskRow[];
+  listStoredTaskEvidence: (taskId?: string) => TaskEvidenceRow[];
+}
+
+const tempRoots: string[] = [];
+const storageClosers: Array<() => void> = [];
+
+afterEach(() => {
+  for (const close of storageClosers.splice(0)) close();
+  delete process.env.HEXDECK_HOME_DIR;
+  delete process.env.HEXDECK_CLAUDE_DIR;
+  delete process.env.HEXDECK_STORAGE_PARSER_VERSION;
+  vi.resetModules();
+  for (const root of tempRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+describe("task extraction", () => {
+  it("maps explicit plan items and task_create rows into stored tasks with evidence", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-a", [
+      line("2026-04-05T15:00:00.000Z", "user", "Implement task extraction", "- Add tasks table\n- Extract explicit task items"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:00:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will add the schema and extraction logic." },
+          { type: "tool_use", id: "t1", name: "TaskCreate", input: { subject: "Persist task ontology", description: "Create tasks, session_tasks, and task_evidence" } },
+          { type: "tool_use", id: "t2", name: "Edit", input: { file_path: "/tmp/demo/project/src/storage/tasks.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:00:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: "Task #12 created successfully" },
+          { type: "tool_result", tool_use_id: "t2", content: "edit ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks.map((task) => task.title)).toEqual(
+      expect.arrayContaining([
+        "Add tasks table",
+        "Extract explicit task items",
+        "Persist task ontology",
+      ]),
+    );
+    expect(tasks.every((task) => task.taskType === "explicit" || task.taskType === "inferred")).toBe(true);
+
+    const sessionTasks = mod.listStoredSessionTasks("task-session-a");
+    expect(sessionTasks.length).toBeGreaterThanOrEqual(3);
+    expect(sessionTasks.some((row) => row.relationshipType === "primary")).toBe(true);
+
+    const ontologyTask = tasks.find((task) => task.title === "Persist task ontology");
+    expect(ontologyTask).toBeTruthy();
+    expect(mod.listStoredTaskEvidence(ontologyTask!.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ evidenceType: "task_create", sourceTable: "plan_items" }),
+      ]),
+    );
+  });
+
+  it("creates inferred tasks from session_state when no explicit tasks exist", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-b", [
+      line("2026-04-05T15:10:00.000Z", "user", "Refactor the parser cache"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:10:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will refactor the parser cache and run tests." },
+          { type: "tool_use", id: "i1", name: "Read", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+          { type: "tool_use", id: "i2", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+          { type: "tool_use", id: "i3", name: "Bash", input: { command: "npm test" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:10:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "i1", content: "read ok" },
+          { type: "tool_result", tool_use_id: "i2", content: "edit ok" },
+          { type: "tool_result", tool_use_id: "i3", content: "tests ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].taskType).toBe("inferred");
+    expect(tasks[0].title).toBe("Refactor the parser cache");
+
+    const evidence = mod.listStoredTaskEvidence(tasks[0].id);
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ evidenceType: "session_goal", sourceTable: "session_state" }),
+        expect.objectContaining({ evidenceType: "file_cluster" }),
+        expect.objectContaining({ evidenceType: "action_pattern", sourceTable: "commands" }),
+      ]),
+    );
+  });
+
+  it("produces stable fallback tasks from file clusters regardless of file order", async () => {
+    const root = createFixtureRoot();
+    // Session 1: files in one order
+    createTranscript(root, "task-session-d1", [
+      line("2026-04-05T15:30:00.000Z", "user", "fix it"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:30:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Fixing." },
+          { type: "tool_use", id: "d1", name: "Edit", input: { file_path: "/tmp/demo/project/src/storage/tasks.ts" } },
+          { type: "tool_use", id: "d2", name: "Edit", input: { file_path: "/tmp/demo/project/src/storage/migrations.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:30:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "d1", content: "ok" },
+          { type: "tool_result", tool_use_id: "d2", content: "ok" },
+        ],
+      }),
+    ]);
+    // Session 2: same files, different order
+    createTranscript(root, "task-session-d2", [
+      line("2026-04-05T15:31:00.000Z", "user", "fix it"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:31:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Fixing." },
+          { type: "tool_use", id: "d3", name: "Edit", input: { file_path: "/tmp/demo/project/src/storage/migrations.ts" } },
+          { type: "tool_use", id: "d4", name: "Edit", input: { file_path: "/tmp/demo/project/src/storage/tasks.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:31:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "d3", content: "ok" },
+          { type: "tool_result", tool_use_id: "d4", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toContain("src/storage");
+    const sessionTasks = mod.listStoredSessionTasks();
+    expect(sessionTasks.filter((row) => row.taskId === tasks[0].id)).toHaveLength(2);
+  });
+
+  it("filters expanded low-info goal patterns into fallback tasks", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-e", [
+      line("2026-04-05T15:40:00.000Z", "user", "continue with the task"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:40:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Continuing." },
+          { type: "tool_use", id: "e1", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:40:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "e1", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    // Should fall through to file cluster, not use "continue with the task" as title
+    expect(tasks[0].taskType).toBe("inferred");
+    expect(tasks[0].title).not.toContain("continue");
+    expect(tasks[0].confidence).toBeLessThan(0.7);
+  });
+
+  it("reuses tasks across sessions when the canonical task meaning matches", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-c1", [
+      line("2026-04-05T15:20:00.000Z", "user", "Add auth middleware", "- Add auth middleware"),
+    ]);
+    createTranscript(root, "task-session-c2", [
+      line("2026-04-05T15:21:00.000Z", "user", "Add auth middleware", "- Add auth middleware"),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(1);
+    const sessionTasks = mod.listStoredSessionTasks();
+    expect(sessionTasks.filter((row) => row.taskId === tasks[0].id)).toHaveLength(2);
+  });
+});
+
+function createFixtureRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "hexdeck-tasks-"));
+  tempRoots.push(root);
+  return root;
+}
+
+async function loadModules(root: string): Promise<LoadedModules> {
+  process.env.HEXDECK_HOME_DIR = root;
+  process.env.HEXDECK_CLAUDE_DIR = join(root, ".claude");
+  process.env.HEXDECK_STORAGE_PARSER_VERSION = "m4-task-test";
+  vi.resetModules();
+
+  const db = await import("./db.js");
+  const sync = await import("./sync.js");
+  const tasks = await import("./tasks.js");
+
+  storageClosers.push(() => {
+    try {
+      db.closeStorage();
+    } catch {}
+  });
+
+  return {
+    initStorage: db.initStorage,
+    closeStorage: db.closeStorage,
+    syncClaudeSessionsToStorage: sync.syncClaudeSessionsToStorage,
+    listStoredTasks: tasks.listStoredTasks,
+    listStoredSessionTasks: tasks.listStoredSessionTasks,
+    listStoredTaskEvidence: tasks.listStoredTaskEvidence,
+  };
+}
+
+function createTranscript(root: string, sessionId: string, lines: string[]): void {
+  const projectPath = "/tmp/demo/project";
+  const projectsDir = join(root, ".claude", "projects");
+  const projectDir = join(projectsDir, projectPath.replace(/[^a-zA-Z0-9-]/g, "-"));
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, `${sessionId}.jsonl`), `${lines.join("\n")}\n`, "utf-8");
+}
+
+function line(timestamp: string, role: "user" | "assistant", content: string, planContent?: string): string {
+  return JSON.stringify({
+    timestamp,
+    role,
+    content,
+    ...(planContent ? { planContent } : {}),
+  });
+}
