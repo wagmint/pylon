@@ -56,6 +56,30 @@ export {
   type TaskModuleAffinityRow,
   type WorkstreamStatus,
 } from "./storage/workstreams.js";
+export {
+  listStoredArtifacts,
+  listStoredTaskArtifacts,
+  listStoredSessionArtifacts,
+  listStoredWorkstreamArtifacts,
+  listStoredDecisions,
+  listStoredDecisionEvidence,
+  listStoredTaskDecisions,
+  listStoredSessionDecisions,
+  listStoredWorkstreamDecisions,
+  listStoredBlockers,
+  listStoredBlockerEvidence,
+  listStoredTaskBlockers,
+  listStoredSessionBlockers,
+  listStoredWorkstreamBlockers,
+  type ArtifactRow,
+  type ArtifactAttachmentRow,
+  type DecisionRow,
+  type DecisionEvidenceRow,
+  type DecisionAttachmentRow,
+  type BlockerRow,
+  type BlockerEvidenceRow,
+  type BlockerAttachmentRow,
+} from "./storage/m6.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";
