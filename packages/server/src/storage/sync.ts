@@ -65,6 +65,12 @@ export function syncClaudeSessionsToStorage(
         }
       }
 
+      // Run task derivation a second time after every session has been ingested so
+      // cross-session attachment can see explicit tasks created later in discovery order.
+      for (const sessionId of seenSessionIds) {
+        deriveAndStoreTasksForSession(sessionId);
+      }
+
       for (const projectPath of seenProjectPaths) {
         deriveAndStoreWorkstreamsForProject(projectPath);
         deriveAndStoreM6ForProject(projectPath);
