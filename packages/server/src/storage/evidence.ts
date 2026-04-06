@@ -664,16 +664,16 @@ function derivePlanItems(turn: TurnNode): Array<{
   }> = [];
 
   if (turn.planMarkdown) {
-    const markdownItems = extractPlanMarkdownItems(turn.planMarkdown);
-    for (const item of markdownItems) {
+    const groupedPlanItem = extractGroupedPlanItem(turn.planMarkdown);
+    if (groupedPlanItem) {
       items.push({
         source: "plan_markdown",
-        ordinal: item.ordinal,
+        ordinal: 1,
         taskId: null,
-        subject: item.subject,
-        description: null,
+        subject: groupedPlanItem.subject,
+        description: groupedPlanItem.description,
         status: turn.planRejected ? "rejected" : "planned",
-        rawText: item.rawText,
+        rawText: groupedPlanItem.rawText,
       });
     }
   }
@@ -705,43 +705,66 @@ function derivePlanItems(turn: TurnNode): Array<{
   return items;
 }
 
-function extractPlanMarkdownItems(markdown: string): Array<{ ordinal: number; subject: string; rawText: string }> {
-  const items: Array<{ ordinal: number; subject: string; rawText: string }> = [];
-  const lines = markdown.split("\n");
-  let ordinal = 1;
+function extractGroupedPlanItem(markdown: string): {
+  subject: string;
+  description: string | null;
+  rawText: string;
+} | null {
+  const bullets = markdown
+    .split("\n")
+    .map((line) => line.trim())
+    .map((trimmed) => {
+      const bulletMatch = trimmed.match(/^[-*+]\s+(.*)$/);
+      const numberedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+      return bulletMatch?.[1] ?? numberedMatch?.[1] ?? null;
+    })
+    .filter((item): item is string => Boolean(item && item.trim()));
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const bulletMatch = trimmed.match(/^[-*+]\s+(.*)$/);
-    const numberedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
-    const content = bulletMatch?.[1] ?? numberedMatch?.[1] ?? null;
-    if (!content) continue;
-    items.push({
-      ordinal,
-      subject: content.trim(),
-      rawText: trimmed,
-    });
-    ordinal++;
+  const meaningfulBullets = bullets.filter((bullet) => !isOperationalPlanBullet(bullet));
+  if (meaningfulBullets.length > 0) {
+    const subject = meaningfulBullets[0].trim();
+    return {
+      subject,
+      description: markdown.trim(),
+      rawText: markdown.trim(),
+    };
   }
-
-  if (items.length > 0) return items;
 
   const paragraphs = markdown
     .split(/\n{2,}/)
     .map((part) => part.trim())
     .filter(Boolean);
-
-  for (const paragraph of paragraphs) {
-    items.push({
-      ordinal,
-      subject: paragraph.split("\n")[0].trim(),
-      rawText: paragraph,
-    });
-    ordinal++;
+  if (paragraphs.length > 0) {
+    return {
+      subject: paragraphs[0].split("\n")[0].trim(),
+      description: markdown.trim(),
+      rawText: markdown.trim(),
+    };
   }
 
-  return items;
+  return null;
+}
+
+function isOperationalPlanBullet(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return true;
+  const commandPrefixes = [
+    "run ",
+    "start ",
+    "stop ",
+    "restart ",
+    "typecheck",
+    "test ",
+    "verify ",
+    "check ",
+    "confirm ",
+    "open ",
+    "launch ",
+    "cd ",
+  ];
+  if (commandPrefixes.some((prefix) => normalized.startsWith(prefix))) return true;
+  if (/^(npm|pnpm|yarn|bun|git|cargo|go|python|uv)\b/.test(normalized)) return true;
+  return false;
 }
 
 function summarizePlan(markdown: string): string {

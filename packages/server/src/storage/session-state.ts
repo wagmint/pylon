@@ -248,6 +248,7 @@ function deriveSessionState(sessionId: string): SessionStateRow {
 function deriveCurrentGoal(planItems: PlanItemRow[], latestTurn: TurnStateRow | null): string {
   const latestExplicit = planItems.find((item) =>
     item.subject.trim().length > 0
+    && !(item.source === "task_update" && /^task\s+\d+$/i.test(item.subject.trim()))
     && item.status !== "completed"
     && item.status !== "done"
   );

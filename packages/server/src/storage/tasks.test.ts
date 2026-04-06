@@ -59,14 +59,13 @@ describe("task extraction", () => {
     expect(tasks.map((task) => task.title)).toEqual(
       expect.arrayContaining([
         "Add tasks table",
-        "Extract explicit task items",
         "Persist task ontology",
       ]),
     );
     expect(tasks.every((task) => task.taskType === "explicit" || task.taskType === "inferred")).toBe(true);
 
     const sessionTasks = mod.listStoredSessionTasks("task-session-a");
-    expect(sessionTasks.length).toBeGreaterThanOrEqual(3);
+    expect(sessionTasks.length).toBeGreaterThanOrEqual(2);
     expect(sessionTasks.some((row) => row.relationshipType === "primary")).toBe(true);
 
     const ontologyTask = tasks.find((task) => task.title === "Persist task ontology");
@@ -120,6 +119,36 @@ describe("task extraction", () => {
         expect.objectContaining({ evidenceType: "action_pattern", sourceTable: "commands" }),
       ]),
     );
+  });
+
+  it("does not create bare Task N tasks from task_update events", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-update", [
+      line("2026-04-05T15:12:00.000Z", "user", "Work on the parser"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:12:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Tracking progress." },
+          { type: "tool_use", id: "u1", name: "TaskUpdate", input: { taskId: "1", status: "in_progress" } },
+          { type: "tool_use", id: "u2", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:12:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "u2", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks.some((task) => /^task \d+$/i.test(task.title))).toBe(false);
   });
 
   it("produces stable fallback tasks from file clusters regardless of file order", async () => {
@@ -209,6 +238,35 @@ describe("task extraction", () => {
     expect(tasks[0].taskType).toBe("inferred");
     expect(tasks[0].title).not.toContain("continue");
     expect(tasks[0].confidence).toBeLessThan(0.7);
+  });
+
+  it("does not create inferred tasks from question-shaped goals without explicit tasks", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-question", [
+      line("2026-04-05T15:41:00.000Z", "user", "if someone were running claude on conductor.build would hexdeck be able to pick it up?"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:41:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Investigating." },
+          { type: "tool_use", id: "q1", name: "Read", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:41:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "q1", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(0);
   });
 
   it("reuses tasks across sessions when the canonical task meaning matches", async () => {
