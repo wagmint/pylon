@@ -5,6 +5,7 @@ import { withTransaction } from "./db.js";
 import { replaceClaudeParsedEvidence } from "./evidence.js";
 import { deriveAndStoreSessionState } from "./session-state.js";
 import { deriveAndStoreTasksForSession } from "./tasks.js";
+import { deriveAndStoreWorkstreamsForProject } from "./workstreams.js";
 import {
   ensureClaudeIngestionCheckpoint,
   getClaudeIngestionCheckpoint,
@@ -45,6 +46,7 @@ export function syncClaudeSessionsToStorage(
   try {
     const projects = listProjects();
     const seenSessionIds: string[] = [];
+    const seenProjectPaths = new Set<string>();
 
     withTransaction(() => {
       for (const project of projects) {
@@ -57,7 +59,12 @@ export function syncClaudeSessionsToStorage(
           deriveAndStoreSessionState(session.id);
           deriveAndStoreTasksForSession(session.id);
           seenSessionIds.push(session.id);
+          seenProjectPaths.add(session.projectPath);
         }
+      }
+
+      for (const projectPath of seenProjectPaths) {
+        deriveAndStoreWorkstreamsForProject(projectPath);
       }
 
       markMissingClaudeTranscriptSourcesInactive(seenSessionIds);

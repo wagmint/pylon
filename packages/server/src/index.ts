@@ -41,6 +41,19 @@ export {
   type TaskStatus,
   type TaskType,
 } from "./storage/tasks.js";
+export {
+  listStoredWorkstreams,
+  listStoredWorkstreamTasks,
+  listStoredWorkstreamSessions,
+  listStoredWorkstreamEvidence,
+  listStoredWorkstreamState,
+  type WorkstreamRow,
+  type WorkstreamTaskRow,
+  type WorkstreamSessionRow,
+  type WorkstreamEvidenceRow,
+  type WorkstreamStateRow,
+  type WorkstreamStatus,
+} from "./storage/workstreams.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";
