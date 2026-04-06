@@ -4,6 +4,7 @@ import type { SessionInfo } from "../types/index.js";
 import { withTransaction } from "./db.js";
 import { replaceClaudeParsedEvidence } from "./evidence.js";
 import { deriveAndStoreSessionState } from "./session-state.js";
+import { deriveAndStoreTasksForSession } from "./tasks.js";
 import {
   ensureClaudeIngestionCheckpoint,
   getClaudeIngestionCheckpoint,
@@ -54,6 +55,7 @@ export function syncClaudeSessionsToStorage(
           upsertClaudeSession(session, transcriptSourceId);
           ingestClaudeTranscriptSource(session, transcriptSourceId);
           deriveAndStoreSessionState(session.id);
+          deriveAndStoreTasksForSession(session.id);
           seenSessionIds.push(session.id);
         }
       }
