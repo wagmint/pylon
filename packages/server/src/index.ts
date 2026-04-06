@@ -47,11 +47,13 @@ export {
   listStoredWorkstreamSessions,
   listStoredWorkstreamEvidence,
   listStoredWorkstreamState,
+  listStoredTaskModuleAffinities,
   type WorkstreamRow,
   type WorkstreamTaskRow,
   type WorkstreamSessionRow,
   type WorkstreamEvidenceRow,
   type WorkstreamStateRow,
+  type TaskModuleAffinityRow,
   type WorkstreamStatus,
 } from "./storage/workstreams.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";

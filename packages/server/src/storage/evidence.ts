@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
 import { buildParsedSession } from "../core/nodes.js";
 import { parseSessionFile, parseSystemLines, getMessageText, getToolCalls, getToolResults, hasCompaction, getThinkingText } from "../parser/jsonl.js";
 import type { SessionEvent, SessionInfo, TurnNode } from "../types/index.js";
@@ -53,6 +54,7 @@ export interface StoredFileTouchRow {
   turnIndex: number | null;
   lineNumber: number;
   filePath: string | null;
+  moduleKey: string | null;
   action: string;
   sourceTool: string;
   detail: string | null;
@@ -150,8 +152,8 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const insertFileTouch = db.prepare(`
-    INSERT INTO file_touches(session_id, turn_index, line_number, tool_call_id, file_path, action, source_tool, detail, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO file_touches(session_id, turn_index, line_number, tool_call_id, file_path, module_key, action, source_tool, detail, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertCommand = db.prepare(`
     INSERT INTO commands(session_id, turn_index, line_number, tool_call_id, command_text, is_git_commit, is_git_push, is_git_pull, timestamp)
@@ -295,12 +297,14 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
 
       const touches = deriveFileTouches(call);
       for (const touch of touches) {
+        const moduleKey = deriveModuleKey(session.projectPath, touch.filePath);
         insertFileTouch.run(
           session.id,
           turnIndex,
           event.line,
           call.id,
           touch.filePath,
+          moduleKey,
           touch.action,
           call.name,
           touch.detail,
@@ -448,6 +452,7 @@ export function listStoredFileTouches(sessionId?: string): StoredFileTouchRow[] 
       turn_index as turnIndex,
       line_number as lineNumber,
       file_path as filePath,
+      module_key as moduleKey,
       action,
       source_tool as sourceTool,
       detail
@@ -626,6 +631,48 @@ function deriveFileTouches(call: { name: string; input: Record<string, unknown> 
     default:
       return [];
   }
+}
+
+function deriveModuleKey(projectPath: string, filePath: string | null): string | null {
+  if (!filePath) return null;
+
+  const normalizedProjectPath = normalizePath(projectPath);
+  const normalizedFilePath = normalizePath(filePath);
+  if (!normalizedFilePath) return null;
+
+  let relativePath = normalizedFilePath;
+  if (isAbsolute(normalizedFilePath)) {
+    const candidate = normalizePath(relative(normalizedProjectPath, normalizedFilePath));
+    if (!candidate || candidate.startsWith("..")) {
+      return null;
+    }
+    relativePath = candidate;
+  }
+
+  const segments = relativePath.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+
+  const directorySegments = segments.slice(0, -1);
+  const noiseSegments = new Set([
+    "src",
+    "lib",
+    "app",
+    "packages",
+    "dist",
+    "build",
+    "test",
+    "tests",
+    "__tests__",
+  ]);
+
+  const meaningfulSegments = directorySegments.filter((segment) => !noiseSegments.has(segment.toLowerCase()));
+  if (meaningfulSegments.length === 0) return null;
+
+  return meaningfulSegments.slice(0, 2).join("/");
+}
+
+function normalizePath(input: string): string {
+  return input.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, "");
 }
 
 function deriveApprovals(turn: TurnNode): Array<{

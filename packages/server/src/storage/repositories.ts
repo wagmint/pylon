@@ -1,7 +1,7 @@
 import type { SessionInfo } from "../types/index.js";
 import { getDb } from "./db.js";
 
-export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m2-evidence-v1";
+export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m5-workstreams-v2";
 
 export interface TranscriptSourceRow {
   id: number;
