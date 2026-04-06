@@ -80,6 +80,14 @@ export {
   type BlockerEvidenceRow,
   type BlockerAttachmentRow,
 } from "./storage/m6.js";
+export {
+  listStoredHandoffs,
+  listStoredHandoffTasks,
+  listStoredHandoffWorkstreams,
+  listStoredHandoffArtifacts,
+  type HandoffRow,
+  type HandoffAttachmentRow,
+} from "./storage/handoffs.js";
 export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";

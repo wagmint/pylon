@@ -740,6 +740,77 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workstream_blockers_workstream_id ON workstream_blockers(workstream_id)`,
     ],
   },
+  {
+    id: 8,
+    name: "handoffs_and_cross_session_memory",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS handoffs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL UNIQUE,
+        project_path TEXT NOT NULL,
+        handoff_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL,
+        open_questions_json TEXT NOT NULL,
+        next_steps_json TEXT NOT NULL,
+        files_in_play_json TEXT NOT NULL,
+        resume_package_json TEXT NOT NULL,
+        last_event_at TEXT,
+        derived_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS handoff_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handoff_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(handoff_id) REFERENCES handoffs(id) ON DELETE CASCADE,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        UNIQUE(handoff_id, task_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS handoff_workstreams (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handoff_id TEXT NOT NULL,
+        workstream_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(handoff_id) REFERENCES handoffs(id) ON DELETE CASCADE,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        UNIQUE(handoff_id, workstream_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS handoff_artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handoff_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(handoff_id) REFERENCES handoffs(id) ON DELETE CASCADE,
+        FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+        UNIQUE(handoff_id, artifact_id)
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_handoffs_project_path ON handoffs(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_handoffs_handoff_type ON handoffs(handoff_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_handoff_tasks_handoff_id ON handoff_tasks(handoff_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_handoff_workstreams_handoff_id ON handoff_workstreams(handoff_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_handoff_id ON handoff_artifacts(handoff_id)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
