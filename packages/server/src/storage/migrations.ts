@@ -425,6 +425,113 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workstream_state_status ON workstream_state(status)`,
     ],
   },
+  {
+    id: 6,
+    name: "workstream_module_clustering",
+    up: [
+      `ALTER TABLE file_touches ADD COLUMN module_key TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_file_touches_module_key ON file_touches(module_key)`,
+      `
+      CREATE TABLE IF NOT EXISTS task_module_affinity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        module_key TEXT NOT NULL,
+        score REAL NOT NULL,
+        confidence REAL NOT NULL,
+        is_dominant INTEGER NOT NULL DEFAULT 0,
+        evidence_json TEXT,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        UNIQUE(task_id, module_key)
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_task_module_affinity_task_id ON task_module_affinity(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_task_module_affinity_module_key ON task_module_affinity(module_key)`,
+      `DROP TABLE IF EXISTS workstream_state`,
+      `DROP TABLE IF EXISTS workstream_evidence`,
+      `DROP TABLE IF EXISTS workstream_sessions`,
+      `DROP TABLE IF EXISTS workstream_tasks`,
+      `DROP TABLE IF EXISTS workstreams`,
+      `
+      CREATE TABLE IF NOT EXISTS workstreams (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        canonical_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT,
+        UNIQUE(project_path, canonical_key)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        grouping_basis TEXT NOT NULL DEFAULT 'project_fallback',
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        UNIQUE(workstream_id, task_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        derived_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        UNIQUE(workstream_id, session_id)
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workstream_id TEXT NOT NULL,
+        evidence_type TEXT NOT NULL,
+        source_table TEXT NOT NULL,
+        source_row_id TEXT,
+        snippet TEXT,
+        confidence REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS workstream_state (
+        workstream_id TEXT PRIMARY KEY,
+        derived_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        active_task_count INTEGER NOT NULL DEFAULT 0,
+        blocked_task_count INTEGER NOT NULL DEFAULT 0,
+        stalled_task_count INTEGER NOT NULL DEFAULT 0,
+        completed_task_count INTEGER NOT NULL DEFAULT 0,
+        session_count INTEGER NOT NULL DEFAULT 0,
+        confidence REAL NOT NULL,
+        last_activity_at TEXT,
+        FOREIGN KEY(workstream_id) REFERENCES workstreams(id) ON DELETE CASCADE
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_workstreams_project_path ON workstreams(project_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstreams_status ON workstreams(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_tasks_workstream_id ON workstream_tasks(workstream_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_tasks_task_id ON workstream_tasks(task_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_sessions_workstream_id ON workstream_sessions(workstream_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_sessions_session_id ON workstream_sessions(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_evidence_workstream_id ON workstream_evidence(workstream_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_workstream_state_status ON workstream_state(status)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {

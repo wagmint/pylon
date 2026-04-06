@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type {
+  TaskModuleAffinityRow,
   WorkstreamEvidenceRow,
   WorkstreamRow,
   WorkstreamSessionRow,
@@ -19,6 +20,7 @@ interface LoadedModules {
   listStoredWorkstreamSessions: (workstreamId?: string) => WorkstreamSessionRow[];
   listStoredWorkstreamEvidence: (workstreamId?: string) => WorkstreamEvidenceRow[];
   listStoredWorkstreamState: (workstreamId?: string) => WorkstreamStateRow[];
+  listStoredTaskModuleAffinities: (taskId?: string) => TaskModuleAffinityRow[];
 }
 
 const tempRoots: string[] = [];
@@ -36,6 +38,50 @@ afterEach(() => {
 });
 
 describe("workstream model", () => {
+  it("clusters tasks into multiple module workstreams within one project", async () => {
+    const root = createFixtureRoot();
+    const projectPath = "/tmp/demo/project/multi";
+    createTranscript(root, projectPath, "ws-m1", [
+      line("2026-04-05T15:59:59.000Z", "user", "Implement auth middleware", "- Add auth middleware"),
+      toolUseLine("2026-04-05T16:00:00.000Z", "w1", "Write", {
+        file_path: `${projectPath}/src/auth/middleware.ts`,
+        content: "export const auth = true;\n",
+      }),
+    ]);
+    createTranscript(root, projectPath, "ws-m2", [
+      line("2026-04-05T16:00:59.000Z", "user", "Polish dashboard layout", "- Polish dashboard layout"),
+      toolUseLine("2026-04-05T16:01:00.000Z", "e1", "Edit", {
+        file_path: `${projectPath}/src/dashboard/page.tsx`,
+        old_string: "old",
+        new_string: "new",
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const workstreams = mod.listStoredWorkstreams(projectPath);
+    expect(workstreams).toHaveLength(2);
+    expect(new Set(workstreams.map((row) => row.canonicalKey))).toEqual(new Set([
+      "module:auth",
+      "module:dashboard",
+    ]));
+
+    const taskLinks = workstreams.flatMap((row) => mod.listStoredWorkstreamTasks(row.id));
+    expect(taskLinks.every((row) => row.groupingBasis === "dominant_module")).toBe(true);
+
+    const authWorkstream = workstreams.find((row) => row.canonicalKey === "module:auth");
+    expect(authWorkstream?.summary).toContain("Module: auth");
+
+    const evidence = authWorkstream ? mod.listStoredWorkstreamEvidence(authWorkstream.id) : [];
+    expect(evidence.some((row) => row.evidenceType === "module_affinity")).toBe(true);
+
+    const affinities = mod.listStoredTaskModuleAffinities();
+    expect(affinities.some((row) => row.moduleKey === "auth" && row.isDominant)).toBe(true);
+    expect(affinities.some((row) => row.moduleKey === "dashboard" && row.isDominant)).toBe(true);
+  });
+
   it("groups project tasks and sessions into one durable workstream", async () => {
     const root = createFixtureRoot();
     createTranscript(root, "/tmp/demo/project/a", "ws-a1", [
@@ -59,6 +105,7 @@ describe("workstream model", () => {
 
     const links = mod.listStoredWorkstreamTasks(workstreams[0].id);
     expect(links.length).toBeGreaterThanOrEqual(2);
+    expect(links.every((row) => row.groupingBasis === "project_fallback")).toBe(true);
 
     const sessions = mod.listStoredWorkstreamSessions(workstreams[0].id);
     expect(sessions).toHaveLength(2);
@@ -69,6 +116,38 @@ describe("workstream model", () => {
 
     const evidence = mod.listStoredWorkstreamEvidence(workstreams[0].id);
     expect(evidence.some((row) => row.evidenceType === "session_goal")).toBe(true);
+  });
+
+  it("falls back to one project workstream when module evidence is trivial", async () => {
+    const root = createFixtureRoot();
+    const projectPath = "/tmp/demo/project/samemodule";
+    createTranscript(root, projectPath, "ws-s1", [
+      line("2026-04-05T16:05:00.000Z", "user", "Add auth middleware", "- Add auth middleware"),
+      toolUseLine("2026-04-05T16:05:01.000Z", "w2", "Write", {
+        file_path: `${projectPath}/src/auth/middleware.ts`,
+        content: "export const middleware = true;\n",
+      }),
+    ]);
+    createTranscript(root, projectPath, "ws-s2", [
+      line("2026-04-05T16:05:59.000Z", "user", "Tighten auth validation", "- Tighten auth validation"),
+      toolUseLine("2026-04-05T16:06:00.000Z", "e2", "Edit", {
+        file_path: `${projectPath}/src/auth/validator.ts`,
+        old_string: "a",
+        new_string: "b",
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const workstreams = mod.listStoredWorkstreams(projectPath);
+    expect(workstreams).toHaveLength(1);
+    expect(workstreams[0].canonicalKey).toBe("project_fallback");
+
+    const links = mod.listStoredWorkstreamTasks(workstreams[0].id);
+    expect(links).toHaveLength(2);
+    expect(links.every((row) => row.groupingBasis === "project_fallback")).toBe(true);
   });
 
   it("creates separate workstreams for separate projects", async () => {
@@ -156,6 +235,7 @@ async function loadModules(root: string): Promise<LoadedModules> {
     listStoredWorkstreamSessions: workstreams.listStoredWorkstreamSessions,
     listStoredWorkstreamEvidence: workstreams.listStoredWorkstreamEvidence,
     listStoredWorkstreamState: workstreams.listStoredWorkstreamState,
+    listStoredTaskModuleAffinities: workstreams.listStoredTaskModuleAffinities,
   };
 }
 
@@ -172,5 +252,21 @@ function line(timestamp: string, role: "user" | "assistant", content: string, pl
     role,
     content,
     ...(planContent ? { planContent } : {}),
+  });
+}
+
+function toolUseLine(
+  timestamp: string,
+  id: string,
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  return JSON.stringify({
+    timestamp,
+    role: "assistant",
+    content: [
+      { type: "text", text: "Applying changes." },
+      { type: "tool_use", id, name, input },
+    ],
   });
 }
