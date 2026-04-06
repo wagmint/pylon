@@ -269,6 +269,111 @@ describe("task extraction", () => {
     expect(tasks).toHaveLength(0);
   });
 
+  it("filters conversational prefix goals even when there is execution evidence", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-prefix", [
+      line("2026-04-05T15:42:00.000Z", "user", "okay now can you plan for milestone 1"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:42:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Planning and editing." },
+          { type: "tool_use", id: "p1", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:42:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "p1", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(0);
+  });
+
+  it("filters bracketed system text and pasted content from inferred tasks", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-system", [
+      line("2026-04-05T15:43:00.000Z", "user", "[Interrupted by user]"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:43:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Continuing." },
+          { type: "tool_use", id: "s1", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:43:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "s1", content: "ok" },
+        ],
+      }),
+    ]);
+    createTranscript(root, "task-session-paste", [
+      line("2026-04-05T15:44:00.000Z", "user", "Meeting Title: Storage Review\nDate: 2026-04-05"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:44:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Editing." },
+          { type: "tool_use", id: "s2", name: "Edit", input: { file_path: "/tmp/demo/project/src/parser/cache.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:44:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "s2", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(0);
+  });
+
+  it("suppresses low-depth file cluster fallback tasks", async () => {
+    const root = createFixtureRoot();
+    createTranscript(root, "task-session-shallow", [
+      line("2026-04-05T15:45:00.000Z", "user", "check again"),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:45:05.000Z",
+        role: "assistant",
+        content: [
+          { type: "text", text: "Checking." },
+          { type: "tool_use", id: "sh1", name: "Edit", input: { file_path: "/Users/jakejin/Documents/test.ts" } },
+        ],
+      }),
+      JSON.stringify({
+        timestamp: "2026-04-05T15:45:06.000Z",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "sh1", content: "ok" },
+        ],
+      }),
+    ]);
+
+    const mod = await loadModules(root);
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const tasks = mod.listStoredTasks("/tmp/demo/project");
+    expect(tasks).toHaveLength(0);
+  });
+
   it("reuses tasks across sessions when the canonical task meaning matches", async () => {
     const root = createFixtureRoot();
     createTranscript(root, "task-session-c1", [

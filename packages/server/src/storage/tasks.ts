@@ -341,7 +341,7 @@ function deriveTaskCandidates(input: {
       ],
     };
 
-    const cluster = describeFileCluster(input.filesInPlay);
+    const cluster = describeFileCluster(input.projectPath, input.filesInPlay);
     if (cluster) {
       candidate.evidence.push({
         evidenceType: "file_cluster",
@@ -372,7 +372,7 @@ function deriveTaskCandidates(input: {
       snippet: currentGoal,
       confidence: 0.72,
     });
-    const cluster = describeFileCluster(input.filesInPlay);
+    const cluster = describeFileCluster(input.projectPath, input.filesInPlay);
     if (cluster) {
       candidate.evidence.push({
         evidenceType: "file_cluster",
@@ -384,8 +384,14 @@ function deriveTaskCandidates(input: {
     }
   }
 
-  if (candidates.size === 0 && input.filesInPlay.length > 0 && hasExecutionEvidence) {
-    const cluster = describeFileCluster(input.filesInPlay);
+  if (
+    candidates.size === 0
+    && input.filesInPlay.length > 0
+    && hasExecutionEvidence
+    && shouldCreateFallbackTask(input.sessionState.currentGoal)
+  ) {
+    const cluster = describeFileCluster(input.projectPath, input.filesInPlay);
+    if (!cluster) return [...candidates.values()];
     const title = cluster ? `Work on ${cluster}` : "Inferred session work";
     const canonicalKey = canonicalizeTaskKey(title);
     candidates.set(canonicalKey, {
@@ -429,8 +435,44 @@ function shouldCreateInferredTask(title: string, activity: SessionActivityRow): 
   const normalized = normalizeInferredTaskTitle(title);
   if (!isMeaningfulTaskTitle(normalized)) return false;
   if (normalized.length > 100) return false;
+  if (looksLikePastedContent(title)) return false;
   if (looksQuestionLike(normalized)) return false;
+  if (!hasEnoughMeaningfulWords(normalized)) return false;
   return hasStrongExecutionEvidence(activity);
+}
+
+function shouldCreateFallbackTask(title: string): boolean {
+  const normalized = normalizeInferredTaskTitle(title);
+  if (!normalized) return true;
+  if (normalized.startsWith("[")) return false;
+  if (looksLikePastedContent(title)) return false;
+  if (looksQuestionLike(normalized)) return false;
+
+  const normalizedLower = normalized.toLowerCase();
+  const allowedLowInfoFallbacks = new Set([
+    "continue",
+    "keep going",
+    "try again",
+    "work on it",
+    "do it",
+    "fix it",
+    "run it",
+    "test it",
+  ]);
+  if (!allowedLowInfoFallbacks.has(normalizedLower) && !hasEnoughMeaningfulWords(normalized)) return false;
+
+  const blockedFallbackPrefixes = [
+    "yes ",
+    "plan for",
+    "okay ",
+    "now ",
+    "look at",
+    "look into",
+    "sorry ",
+    "read @",
+  ];
+  if (blockedFallbackPrefixes.some((prefix) => normalizedLower.startsWith(prefix))) return false;
+  return true;
 }
 
 function hasStrongExecutionEvidence(activity: SessionActivityRow): boolean {
@@ -580,6 +622,7 @@ function canonicalizeTaskKey(text: string): string {
 function isMeaningfulTaskTitle(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized || normalized.length < 4) return false;
+  if (normalized.startsWith("[")) return false;
 
   const lowInfo = new Set([
     "continue",
@@ -610,30 +653,39 @@ function isMeaningfulTaskTitle(text: string): boolean {
   ]);
   if (lowInfo.has(normalized)) return false;
 
-  // Prefix-based filtering for short vague messages (under 40 chars).
-  if (normalized.length < 40) {
-    const lowInfoPrefixes = [
-      "continue",
-      "keep going",
-      "keep working",
-      "try again",
-      "do it",
-      "just do",
-      "just fix",
-      "go ahead",
-    ];
-    if (lowInfoPrefixes.some((prefix) => normalized.startsWith(prefix))) return false;
-  }
+  const lowInfoPrefixes = [
+    "continue",
+    "keep going",
+    "keep working",
+    "try again",
+    "do it",
+    "just do",
+    "just fix",
+    "go ahead",
+    "yes ",
+    "plan for",
+    "okay ",
+    "now ",
+    "look at",
+    "look into",
+    "sorry ",
+    "read @",
+  ];
+  if (lowInfoPrefixes.some((prefix) => normalized.startsWith(prefix))) return false;
 
   return true;
 }
 
-function describeFileCluster(files: string[]): string | null {
+function describeFileCluster(projectPath: string, files: string[]): string | null {
   if (files.length === 0) return null;
 
   const dirs = files
     .map((f) => {
-      const parts = f.split("/").filter(Boolean);
+      const normalized = normalizePathForCluster(f);
+      const normalizedProjectPath = normalizePathForCluster(projectPath);
+      if (!normalized.startsWith(`${normalizedProjectPath}/`)) return null;
+      const relativePath = normalized.slice(normalizedProjectPath.length + 1);
+      const parts = relativePath.split("/").filter(Boolean);
       return parts.length > 1 ? parts.slice(0, -1).join("/") : null;
     })
     .filter((d): d is string => d !== null);
@@ -655,14 +707,36 @@ function describeFileCluster(files: string[]): string | null {
     }
   }
 
-  // If common prefix has depth >= 2, it's specific enough.
+  // If common prefix has depth >= 2 within the project, it's specific enough.
   if (commonParts.length >= 2) {
     return commonParts.join("/");
   }
 
   // Otherwise list distinct directories sorted alphabetically, top 3.
   const unique = [...new Set(dirs)].sort();
-  return unique.slice(0, 3).join(", ");
+  const informative = unique.filter((dir) => dir.split("/").filter(Boolean).length >= 2);
+  if (informative.length === 0) return null;
+  return informative.slice(0, 3).join(", ");
+}
+
+function normalizePathForCluster(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, "");
+}
+
+function hasEnoughMeaningfulWords(text: string): boolean {
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""))
+    .filter(Boolean);
+  return words.length >= 3;
+}
+
+function looksLikePastedContent(text: string): boolean {
+  if (text.includes("\n")) return true;
+  if (/[|┌┐└┘─]/.test(text)) return true;
+  if (/meeting title:|^date:/i.test(text.trim())) return true;
+  return false;
 }
 
 function safeParseJsonArray(raw: string): string[] {
