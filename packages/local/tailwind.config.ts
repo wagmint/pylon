@@ -15,9 +15,18 @@ export default {
     "text-dash-green", "text-dash-yellow", "text-dash-red",
     "border-dash-green/30", "border-dash-blue/30",
     "bg-dash-green/10", "bg-dash-blue/10",
+    "bg-dash-red/5", "bg-dash-yellow/5", "bg-dash-blue/5",
+    "border-dash-red/20", "border-dash-yellow/20", "border-dash-blue/20",
+    "border-l-dash-red", "border-l-dash-yellow", "border-l-dash-blue",
+    "border-l-dash-green", "border-l-dash-border",
+    "ring-dash-border-light",
+    "bg-dash-red/3", "border-dash-red/30",
   ],
   theme: {
     extend: {
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
+      },
       fontFamily: {
         mono: ["JetBrains Mono", "Fira Code", "monospace"],
         sans: ["Inter", "system-ui", "sans-serif"],

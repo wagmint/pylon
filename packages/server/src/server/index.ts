@@ -12,6 +12,8 @@ import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, c
 import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
+import { buildControlState } from "../control/read-model.js";
+import { buildAnalyticsState } from "../control/analytics.js";
 import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
 import { getStorageSyncStatus, syncClaudeSessionsToStorage } from "../storage/sync.js";
@@ -670,6 +672,18 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       ingestionCheckpoints: listIngestionCheckpoints(),
       sessions: listStoredClaudeSessions(),
     });
+  });
+
+  /** Read-only control plane inspection endpoint for M8 visibility work */
+  app.get("/api/control", (c) => {
+    // TODO(M8 Phase B): swap this full read-model rebuild for narrower,
+    // cacheable control queries once the route shape stabilizes.
+    return c.json(buildControlState());
+  });
+
+  /** Pre-aggregated analytics for the control page (File Heatmap / Cost / Activity) */
+  app.get("/api/control/analytics", (c) => {
+    return c.json(buildAnalyticsState());
   });
 
   /** Rebuild the local parsed index and baseline storage from source transcripts. */
