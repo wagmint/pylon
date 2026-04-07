@@ -11,6 +11,7 @@ import { buildDashboardState, buildDashboardSnapshot } from "../core/dashboard.j
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
+import { syncHexdeckToRelayTarget } from "../relay/hexdeck-sync.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
 import { buildControlState } from "../control/read-model.js";
 import { buildAnalyticsState } from "../control/analytics.js";
@@ -518,6 +519,18 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       return c.json({ error: "Target not found" }, 404);
     }
     return c.json({ ok: true });
+  });
+
+  /** Manually sync structured Hexdeck session evidence to a relay target */
+  app.post("/api/relay/targets/:hexcoreId/hexdeck-sync", async (c) => {
+    try {
+      const { hexcoreId } = c.req.param();
+      const result = await syncHexdeckToRelayTarget(hexcoreId);
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ ok: false, error: message }, 400);
+    }
   });
 
   /** Poll claim status — used during onboarding flow */
