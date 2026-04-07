@@ -5,6 +5,7 @@ import { transformToOperatorState } from "./transform.js";
 import { buildIntentEventsForTarget } from "./intent-events.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
+import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
 import type { RelayTarget } from "./types.js";
@@ -12,6 +13,7 @@ import type { RelayTarget } from "./types.js";
 const INTENT_BATCH_SIZE = 100;
 const INTENT_FLUSH_INTERVAL_MS = 2_000;
 const SEEN_EVENT_TTL_MS = 15 * 60 * 1000;
+const HEXDECK_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface RelayTargetStatus {
   hexcoreId: string;
@@ -29,9 +31,16 @@ interface PendingIntentFlushState {
   flushInFlight: Promise<void> | null;
 }
 
+interface PendingHexdeckSyncState {
+  lastStartedAt: number;
+  lastSucceededAt: number | null;
+  syncInFlight: Promise<void> | null;
+}
+
 class RelayManager {
   private connections = new Map<string, RelayConnection>();
   private pendingIntentFlushByTarget = new Map<string, PendingIntentFlushState>();
+  private pendingHexdeckSyncByTarget = new Map<string, PendingHexdeckSyncState>();
   private started = false;
   private collisionAlertCallback: OnCollisionAlerts | null = null;
 
@@ -61,6 +70,7 @@ class RelayManager {
       }
     }
     this.pendingIntentFlushByTarget.clear();
+    this.pendingHexdeckSyncByTarget.clear();
   }
 
   /** Get status for all configured targets with live connection info. */
@@ -143,6 +153,7 @@ class RelayManager {
       clearTimeout(pending.flushTimer);
     }
     this.pendingIntentFlushByTarget.delete(hexcoreId);
+    this.pendingHexdeckSyncByTarget.delete(hexcoreId);
     return true;
   }
 
@@ -204,6 +215,7 @@ class RelayManager {
       // Best-effort additive event emission for Hexcore intent pipeline.
       // This must never interfere with the existing relay state path.
       void this.sendIntentEventsForTarget(target, rawState, parsedSessions);
+      void this.maybeSyncHexdeckToTarget(target);
     }
   }
 
@@ -233,6 +245,7 @@ class RelayManager {
           clearTimeout(pending.flushTimer);
         }
         this.pendingIntentFlushByTarget.delete(id);
+        this.pendingHexdeckSyncByTarget.delete(id);
       }
     }
 
@@ -353,6 +366,51 @@ class RelayManager {
       if (now - seenAt > SEEN_EVENT_TTL_MS) {
         cache.delete(eventId);
       }
+    }
+  }
+
+  private getPendingHexdeckSyncState(hexcoreId: string): PendingHexdeckSyncState {
+    let state = this.pendingHexdeckSyncByTarget.get(hexcoreId);
+    if (!state) {
+      state = {
+        lastStartedAt: 0,
+        lastSucceededAt: null,
+        syncInFlight: null,
+      };
+      this.pendingHexdeckSyncByTarget.set(hexcoreId, state);
+    }
+    return state;
+  }
+
+  private async maybeSyncHexdeckToTarget(target: RelayTarget): Promise<void> {
+    if (target.projects.length === 0) return;
+
+    const state = this.getPendingHexdeckSyncState(target.hexcoreId);
+    if (state.syncInFlight) return;
+
+    const now = Date.now();
+    if (now - state.lastStartedAt < HEXDECK_SYNC_INTERVAL_MS) {
+      return;
+    }
+
+    state.lastStartedAt = now;
+    state.syncInFlight = this.doSyncHexdeckToTarget(target, state);
+    try {
+      await state.syncInFlight;
+    } finally {
+      state.syncInFlight = null;
+    }
+  }
+
+  private async doSyncHexdeckToTarget(target: RelayTarget, state: PendingHexdeckSyncState): Promise<void> {
+    try {
+      await syncHexdeckToRelayTarget(target.hexcoreId);
+      state.lastSucceededAt = Date.now();
+    } catch (err) {
+      console.error(
+        `[relay] hexdeck sync failed for ${target.hexcoreId}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 }

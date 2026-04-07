@@ -1,8 +1,15 @@
+import crypto from "node:crypto";
 import { getDb } from "./db.js";
 import { STORAGE_PARSER_VERSION } from "./repositories.js";
 
+export interface HexcoreSyncCursor {
+  lastAcceptedSourceLastEventAt: string | null;
+  lastAcceptedSessionId: string | null;
+}
+
 export interface HexcoreExportSessionPayload {
   sessionId: string;
+  contentHash: string;
   sourceType: string | null;
   projectPath: string | null;
   cwd: string | null;
@@ -79,13 +86,33 @@ function buildInClause(projectPaths: string[]): string {
   return projectPaths.map(() => "?").join(", ");
 }
 
-export function buildHexcoreExportPayload(projectPaths: string[]): HexcoreExportPayload {
+function stableHash(value: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function normalizeCursor(cursor?: HexcoreSyncCursor | null): HexcoreSyncCursor | null {
+  if (!cursor) return null;
+  return {
+    lastAcceptedSourceLastEventAt: cursor.lastAcceptedSourceLastEventAt ?? null,
+    lastAcceptedSessionId: cursor.lastAcceptedSessionId ?? null,
+  };
+}
+
+export function buildHexcoreExportPayload(
+  projectPaths: string[],
+  options?: { cursor?: HexcoreSyncCursor | null },
+): HexcoreExportPayload {
+  const cursor = normalizeCursor(options?.cursor);
   if (projectPaths.length === 0) {
     return {
       schemaVersion: "hexdeck-session-ingest-v1",
       checkpoint: {
         mode: "empty",
         parserVersion: STORAGE_PARSER_VERSION,
+        lowerBoundLastEventAt: cursor?.lastAcceptedSourceLastEventAt ?? null,
+        lowerBoundSessionId: cursor?.lastAcceptedSessionId ?? null,
+        upperBoundLastEventAt: cursor?.lastAcceptedSourceLastEventAt ?? null,
+        upperBoundSessionId: cursor?.lastAcceptedSessionId ?? null,
       },
       metadata: {
         parserVersion: STORAGE_PARSER_VERSION,
@@ -97,6 +124,17 @@ export function buildHexcoreExportPayload(projectPaths: string[]): HexcoreExport
 
   const db = getDb();
   const inClause = buildInClause(projectPaths);
+  const params: unknown[] = [...projectPaths];
+  let cursorWhere = "";
+  if (cursor?.lastAcceptedSourceLastEventAt) {
+    params.push(cursor.lastAcceptedSourceLastEventAt, cursor.lastAcceptedSourceLastEventAt, cursor.lastAcceptedSessionId ?? "");
+    cursorWhere = `
+      AND (
+        sessions.last_event_at > ?
+        OR (sessions.last_event_at = ? AND sessions.id > ?)
+      )
+    `;
+  }
 
   const sessions = db.prepare(`
     SELECT
@@ -118,8 +156,9 @@ export function buildHexcoreExportPayload(projectPaths: string[]): HexcoreExport
     FROM sessions
     LEFT JOIN session_state ON session_state.session_id = sessions.id
     WHERE sessions.project_path IN (${inClause})
-    ORDER BY sessions.last_event_at DESC
-  `).all(...projectPaths) as SessionRow[];
+    ${cursorWhere}
+    ORDER BY sessions.last_event_at ASC, sessions.id ASC
+  `).all(...params) as SessionRow[];
 
   const messageStmt = db.prepare(`
     SELECT line_number as lineNumber, role, timestamp, text
@@ -193,16 +232,33 @@ export function buildHexcoreExportPayload(projectPaths: string[]): HexcoreExport
   `);
 
   let lastEventAtMax: string | null = null;
+  let lastSessionIdMax: string | null = null;
   const exportedSessions = sessions.map((session) => {
     const filesInPlay = parseJsonStringArray(session.filesInPlayJson);
     const metadata = parseJsonObject(session.metadataJson);
     const errors = errorStmt.all(session.sessionId);
+    const evidence = {
+      messages: messageStmt.all(session.sessionId),
+      planItems: planItemStmt.all(session.sessionId),
+      commands: commandStmt.all(session.sessionId),
+      fileTouches: fileTouchStmt.all(session.sessionId),
+      approvals: approvalStmt.all(session.sessionId),
+      errors,
+    };
 
-    if (!lastEventAtMax || ((session.sourceLastEventAt ?? "") > lastEventAtMax)) {
-      lastEventAtMax = session.sourceLastEventAt ?? lastEventAtMax;
+    if (
+      session.sourceLastEventAt
+      && (
+        !lastEventAtMax
+        || session.sourceLastEventAt > lastEventAtMax
+        || (session.sourceLastEventAt === lastEventAtMax && session.sessionId > (lastSessionIdMax ?? ""))
+      )
+    ) {
+      lastEventAtMax = session.sourceLastEventAt;
+      lastSessionIdMax = session.sessionId;
     }
 
-    return {
+    const payloadWithoutHash = {
       sessionId: session.sessionId,
       sourceType: session.sourceType,
       projectPath: session.projectPath,
@@ -219,25 +275,26 @@ export function buildHexcoreExportPayload(projectPaths: string[]): HexcoreExport
       errorCount: errors.length,
       filesInPlay,
       metadata,
-      evidence: {
-        messages: messageStmt.all(session.sessionId),
-        planItems: planItemStmt.all(session.sessionId),
-        commands: commandStmt.all(session.sessionId),
-        fileTouches: fileTouchStmt.all(session.sessionId),
-        approvals: approvalStmt.all(session.sessionId),
-        errors,
-      },
+      evidence,
+    };
+
+    return {
+      ...payloadWithoutHash,
+      contentHash: stableHash(payloadWithoutHash),
     };
   });
 
   return {
     schemaVersion: "hexdeck-session-ingest-v1",
     checkpoint: {
-      mode: "full_project_export",
+      mode: cursor ? "incremental_project_export" : "full_project_export",
       parserVersion: STORAGE_PARSER_VERSION,
       projectPaths,
       sessionCount: exportedSessions.length,
-      lastEventAtMax,
+      lowerBoundLastEventAt: cursor?.lastAcceptedSourceLastEventAt ?? null,
+      lowerBoundSessionId: cursor?.lastAcceptedSessionId ?? null,
+      upperBoundLastEventAt: lastEventAtMax ?? cursor?.lastAcceptedSourceLastEventAt ?? null,
+      upperBoundSessionId: lastSessionIdMax ?? cursor?.lastAcceptedSessionId ?? null,
     },
     metadata: {
       parserVersion: STORAGE_PARSER_VERSION,
