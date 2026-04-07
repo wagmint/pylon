@@ -42,6 +42,8 @@ export interface HexcoreExportPayload {
   sessions: HexcoreExportSessionPayload[];
 }
 
+const BOOTSTRAP_LOOKBACK_HOURS = 24;
+
 interface SessionRow {
   sessionId: string;
   sourceType: string | null;
@@ -133,6 +135,11 @@ export function buildHexcoreExportPayload(
         sessions.last_event_at > ?
         OR (sessions.last_event_at = ? AND sessions.id > ?)
       )
+    `;
+  } else {
+    params.push(`-${BOOTSTRAP_LOOKBACK_HOURS} hours`);
+    cursorWhere = `
+      AND sessions.last_event_at >= datetime('now', ?)
     `;
   }
 
@@ -287,7 +294,7 @@ export function buildHexcoreExportPayload(
   return {
     schemaVersion: "hexdeck-session-ingest-v1",
     checkpoint: {
-      mode: cursor ? "incremental_project_export" : "full_project_export",
+      mode: cursor ? "incremental_project_export" : "bootstrap_recent_24h",
       parserVersion: STORAGE_PARSER_VERSION,
       projectPaths,
       sessionCount: exportedSessions.length,
@@ -295,10 +302,12 @@ export function buildHexcoreExportPayload(
       lowerBoundSessionId: cursor?.lastAcceptedSessionId ?? null,
       upperBoundLastEventAt: lastEventAtMax ?? cursor?.lastAcceptedSourceLastEventAt ?? null,
       upperBoundSessionId: lastSessionIdMax ?? cursor?.lastAcceptedSessionId ?? null,
+      bootstrapLookbackHours: cursor ? null : BOOTSTRAP_LOOKBACK_HOURS,
     },
     metadata: {
       parserVersion: STORAGE_PARSER_VERSION,
       projectCount: projectPaths.length,
+      bootstrapLookbackHours: cursor ? null : BOOTSTRAP_LOOKBACK_HOURS,
     },
     sessions: exportedSessions,
   };
