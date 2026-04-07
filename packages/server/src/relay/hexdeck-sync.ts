@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { loadRelayConfig } from "./config.js";
-import { sendHexdeckIngestBatch } from "./hexdeck-ingest-api.js";
+import { fetchHexdeckSyncCursor, sendHexdeckIngestBatch } from "./hexdeck-ingest-api.js";
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { initStorage } from "../storage/db.js";
 
@@ -36,61 +36,37 @@ export async function syncHexdeckToRelayTarget(hexcoreId: string): Promise<Hexde
   }
 
   await initStorage();
-  const payload = buildHexcoreExportPayload(target.projects);
+  const cursor = await fetchHexdeckSyncCursor(target);
+  const payload = buildHexcoreExportPayload(target.projects, { cursor });
   const syncRunId = crypto.randomUUID();
   const chunks = chunkArray(payload.sessions, DEFAULT_CHUNK_SIZE);
   const batchIds: string[] = [];
   let totalSessionCount = 0;
   let totalEvidenceCount = 0;
 
-  if (chunks.length === 0) {
+  for (const [index, sessions] of chunks.entries()) {
     const result = await sendHexdeckIngestBatch(target, {
       ...payload,
       checkpoint: {
         ...payload.checkpoint,
         syncRunId,
-        chunkIndex: 0,
-        totalChunks: 1,
-        chunkSize: 0,
+        chunkIndex: index,
+        totalChunks: chunks.length,
+        chunkSize: sessions.length,
       },
       metadata: {
         ...payload.metadata,
         syncRunId,
-        chunkIndex: 0,
-        totalChunks: 1,
-        chunkSize: 0,
-        isFinalChunk: true,
+        chunkIndex: index,
+        totalChunks: chunks.length,
+        chunkSize: sessions.length,
+        isFinalChunk: index === chunks.length - 1,
       },
-      sessions: [],
+      sessions,
     });
     batchIds.push(result.batchId);
     totalSessionCount += result.sessionCount;
     totalEvidenceCount += result.evidenceCount;
-  } else {
-    for (const [index, sessions] of chunks.entries()) {
-      const result = await sendHexdeckIngestBatch(target, {
-        ...payload,
-        checkpoint: {
-          ...payload.checkpoint,
-          syncRunId,
-          chunkIndex: index,
-          totalChunks: chunks.length,
-          chunkSize: sessions.length,
-        },
-        metadata: {
-          ...payload.metadata,
-          syncRunId,
-          chunkIndex: index,
-          totalChunks: chunks.length,
-          chunkSize: sessions.length,
-          isFinalChunk: index === chunks.length - 1,
-        },
-        sessions,
-      });
-      batchIds.push(result.batchId);
-      totalSessionCount += result.sessionCount;
-      totalEvidenceCount += result.evidenceCount;
-    }
   }
 
   return {
@@ -101,6 +77,6 @@ export async function syncHexdeckToRelayTarget(hexcoreId: string): Promise<Hexde
     evidenceCount: totalEvidenceCount,
     batchIds,
     syncRunId,
-    chunkCount: Math.max(chunks.length, 1),
+    chunkCount: chunks.length,
   };
 }
