@@ -16,15 +16,17 @@ export async function sendHexdeckIngestBatch(
     body: JSON.stringify(payload),
   });
 
+  const rawText = await response.text();
   let body: { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } } | null = null;
   try {
-    body = await response.json() as { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } };
+    body = JSON.parse(rawText) as { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } };
   } catch {
     body = null;
   }
 
   if (!response.ok || !body?.data) {
-    throw new Error(body?.message || `Hexdeck ingest failed (${response.status})`);
+    const detail = body?.message || rawText || "no response body";
+    throw new Error(`Hexdeck ingest failed (${response.status}): ${detail}`);
   }
 
   return body.data;

@@ -16,6 +16,7 @@ import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../rela
 import { buildControlState } from "../control/read-model.js";
 import { buildAnalyticsState } from "../control/analytics.js";
 import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
+import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
 import { getStorageSyncStatus, syncClaudeSessionsToStorage } from "../storage/sync.js";
 
@@ -529,6 +530,46 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       return c.json({ ok: true, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.error("[hexdeck-sync] failed:", error);
+      return c.json({ ok: false, error: message }, 400);
+    }
+  });
+
+  /** Preview the structured Hexdeck export payload for a relay target without posting it */
+  app.get("/api/relay/targets/:hexcoreId/hexdeck-sync/preview", async (c) => {
+    try {
+      const { hexcoreId } = c.req.param();
+      const target = relayManager.getStatus().find((entry) => entry.hexcoreId === hexcoreId);
+      if (!target) {
+        return c.json({ error: "Target not found" }, 404);
+      }
+
+      await initStorage();
+      const payload = buildHexcoreExportPayload(target.projects);
+
+      const sessionPreview = payload.sessions.slice(0, 5).map((session) => ({
+        sessionId: session.sessionId,
+        projectPath: session.projectPath,
+        status: session.status,
+        sourceLastEventAt: session.sourceLastEventAt,
+        messageCount: session.evidence.messages.length,
+        planItemCount: session.evidence.planItems.length,
+        commandCount: session.evidence.commands.length,
+        fileTouchCount: session.evidence.fileTouches.length,
+        approvalCount: session.evidence.approvals.length,
+        errorCount: session.evidence.errors.length,
+      }));
+
+      return c.json({
+        ok: true,
+        schemaVersion: payload.schemaVersion,
+        checkpoint: payload.checkpoint,
+        sessionCount: payload.sessions.length,
+        preview: sessionPreview,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[hexdeck-sync-preview] failed:", error);
       return c.json({ ok: false, error: message }, 400);
     }
   });
