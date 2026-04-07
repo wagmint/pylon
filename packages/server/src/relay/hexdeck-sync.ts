@@ -1,6 +1,7 @@
 import { loadRelayConfig } from "./config.js";
 import { sendHexdeckIngestBatch } from "./hexdeck-ingest-api.js";
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
+import { initStorage } from "../storage/db.js";
 
 export interface HexdeckSyncResult {
   hexcoreId: string;
@@ -21,6 +22,7 @@ export async function syncHexdeckToRelayTarget(hexcoreId: string): Promise<Hexde
     throw new Error(`Relay target ${target.hexcoreName} has no included projects`);
   }
 
+  await initStorage();
   const payload = buildHexcoreExportPayload(target.projects);
   const result = await sendHexdeckIngestBatch(target, payload);
 
