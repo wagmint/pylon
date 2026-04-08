@@ -76,3 +76,4 @@ export { TurnEntry } from "./components/TurnEntry";
 export { AgentContextCard } from "./components/AgentContextCard";
 export { ContextRecapPanel, ContextRecapPanelSkeleton } from "./components/ContextRecapPanel";
 export { RiskPanel } from "./components/RiskPanel";
+export { ContextMapSection } from "./components/ContextMapSection";
