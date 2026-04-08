@@ -35,6 +35,17 @@ export type {
   TurnSummary,
 } from "./types";
 
+// Context Map
+export type {
+  ContextNodeType,
+  TaskStatus,
+  ContextNode,
+  ContextEdge,
+  TaskHandoff,
+  ContextMapSummary,
+  ContextMap,
+} from "./context-map/types";
+
 // Utils
 export { timeAgo, formatDuration } from "./utils";
 
