@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import type { DashboardState, Agent } from "@hexdeck/dashboard-ui";
-import { DecideButtons } from "@hexdeck/dashboard-ui";
+import { DecideButtons, ContextMapSection, deriveContextMap } from "@hexdeck/dashboard-ui";
 import { decideSession } from "@/lib/dashboard-api";
 
 interface HomeViewProps {
@@ -55,6 +55,8 @@ export function HomeView({ state }: HomeViewProps) {
       pct: total > 0 ? tokens / total : 0,
     }));
   }, [agents]);
+
+  const contextMap = useMemo(() => deriveContextMap(state), [state]);
 
   // Fall through to existing empty state when no workstreams exist
   if (workstreams.length === 0 && agents.length === 0) {
@@ -152,6 +154,8 @@ export function HomeView({ state }: HomeViewProps) {
           </div>
         )}
       </div>
+
+      <ContextMapSection contextMap={contextMap} />
 
       <div className="text-2xs text-dash-text-muted mt-8 text-center">
         Select a workstream to view context recap, live feed, and plans
