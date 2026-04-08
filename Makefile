@@ -4,18 +4,22 @@ NPX = npx
 API_PORT = 7433
 FRONTEND_PORT = 3000
 LEVEL ?= patch
+HEXDECK_DIR = $(HOME)/.hexdeck
+PID_FILE = $(HEXDECK_DIR)/server.pid
+STATE_LOCK = $(HEXDECK_DIR)/state.lock
 
 # Default target
 .PHONY: help
 help:
 	@echo "Available commands:"
 	@echo "  make hexdeck          - Start Hexdeck (API + dashboard) in foreground"
-	@echo "  make start          - Start Hexdeck server in background"
-	@echo "  make stop           - Stop Hexdeck server"
-	@echo "  make restart        - Restart Hexdeck server"
-	@echo "  make status         - Show Hexdeck server status"
-	@echo "  make install        - Install all dependencies"
-	@echo "  make build          - Build frontend"
+	@echo "  make start            - Start Hexdeck server in background"
+	@echo "  make stop             - Stop Hexdeck server"
+	@echo "  make restart          - Restart Hexdeck server"
+	@echo "  make reset            - Kill owner, clear stale state files, then start"
+	@echo "  make status           - Show Hexdeck server status"
+	@echo "  make install          - Install all dependencies"
+	@echo "  make build            - Build all packages"
 	@echo "  make prepare-menubar  - Stage resources for menubar Tauri build/dev"
 	@echo "  make dev-server       - Start server in dev mode (hot-reload)"
 	@echo "  make dev-menubar      - Build debug .app bundle (registers deep links)"
@@ -47,6 +51,36 @@ stop:
 .PHONY: restart
 restart:
 	cd packages/cli && $(NPX) tsx src/index.ts restart
+
+.PHONY: reset
+reset:
+	@mkdir -p "$(HEXDECK_DIR)"
+	@if [ -f "$(PID_FILE)" ]; then \
+		pid=$$(python3 - <<'PY' "$(PID_FILE)"; \
+import json, sys; \
+path = sys.argv[1]; \
+try: \
+    with open(path, "r", encoding="utf-8") as f: \
+        data = json.load(f); \
+    pid = data.get("pid"); \
+    if isinstance(pid, int): \
+        print(pid); \
+except Exception: \
+    pass; \
+PY \
+); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			echo "Stopping existing Hexdeck owner PID $$pid"; \
+			kill "$$pid" 2>/dev/null || true; \
+			sleep 1; \
+			if kill -0 "$$pid" 2>/dev/null; then \
+				echo "Force killing Hexdeck owner PID $$pid"; \
+				kill -9 "$$pid" 2>/dev/null || true; \
+			fi; \
+		fi; \
+	fi
+	@rm -f "$(PID_FILE)" "$(STATE_LOCK)"
+	@$(MAKE) start
 
 .PHONY: status
 status:
