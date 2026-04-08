@@ -45,6 +45,7 @@ export type {
   ContextMapSummary,
   ContextMap,
 } from "./context-map/types";
+export { deriveContextMap } from "./context-map/derive";
 
 // Utils
 export { timeAgo, formatDuration } from "./utils";
