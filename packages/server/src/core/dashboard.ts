@@ -1,12 +1,8 @@
-import { statSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { basename, join } from "path";
 import { homedir } from "os";
 import { getActiveSessions, listProjects, listSessions } from "../discovery/sessions.js";
 import { getActiveCodexSessions, discoverCodexSessions } from "../discovery/codex.js";
-import { parseSessionFile, parseSystemLines } from "../parser/jsonl.js";
-import { parseCodexSessionFile } from "../parser/codex.js";
-import { buildParsedSession } from "./nodes.js";
-import { buildCodexParsedSession } from "./codex-nodes.js";
 import { getUncommittedFiles } from "./collisions.js";
 import { buildFeed } from "./feed.js";
 import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
@@ -15,79 +11,19 @@ import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import { buildTurnSummaries } from "./turn-summaries.js";
 import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
+import { buildCanonicalSessionPlans } from "./plans.js";
+import {
+  getCachedOrParse, getCachedOrParseCodex, isCodexSession,
+  getAccumulator, getAccumulatorPlans, evictStaleCacheEntries,
+} from "./session-cache.js";
 import type {
   ParsedSession, SessionInfo, Agent, AgentStatus, TurnNode,
   Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
-  SessionPlan, PlanStatus, PlanTask, TokenUsage, DraftingActivity, IntentTaskView,
+  SessionPlan, IntentTaskView,
 } from "../types/index.js";
 import type { SpinningSignal } from "../types/dashboard.js";
 
-// ─── In-memory parse cache ──────────────────────────────────────────────────
-
-interface CacheEntry {
-  mtimeMs: number;
-  parsed: ParsedSession;
-}
-
-const parseCache = new Map<string, CacheEntry>();
-
-// ─── Session accumulator — survives compaction ──────────────────────────────
-
-interface SessionAccumulator {
-  totalTurns: number;
-  totalToolCalls: number;
-  totalCommits: number;
-  totalCompactions: number;
-  totalErrorTurns: number;
-  totalCorrectionTurns: number;
-  totalTokenUsage: TokenUsage;
-  filesChanged: Set<string>;
-  toolsUsed: Record<string, number>;
-  primaryModel: string | null;
-  plans: SessionPlan[];
-  errorHistory: boolean[];
-  modelUsage: Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>;
-}
-
-const accumulators = new Map<string, SessionAccumulator>();
-
-// ─── Accumulator helpers ─────────────────────────────────────────────────────
-
-function maxTokenUsage(a: TokenUsage | undefined, b: TokenUsage): TokenUsage {
-  if (!a) return { ...b };
-  return {
-    inputTokens: Math.max(a.inputTokens, b.inputTokens),
-    outputTokens: Math.max(a.outputTokens, b.outputTokens),
-    cacheReadInputTokens: Math.max(a.cacheReadInputTokens, b.cacheReadInputTokens),
-    cacheCreationInputTokens: Math.max(a.cacheCreationInputTokens, b.cacheCreationInputTokens),
-  };
-}
-
-function addTokenUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
-    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
-  };
-}
-
-function unionSets(a: Set<string> | undefined, b: Set<string>): Set<string> {
-  if (!a) return new Set(b);
-  return new Set([...a, ...b]);
-}
-
-function mergeToolsUsed(
-  a: Record<string, number> | undefined,
-  b: Record<string, number>
-): Record<string, number> {
-  if (!a) return { ...b };
-  const merged = { ...a };
-  for (const [tool, count] of Object.entries(b)) {
-    merged[tool] = Math.max(merged[tool] ?? 0, count);
-  }
-  return merged;
-}
+// ─── Session cache + plan builder imported from shared modules ──────────────
 
 const AGENT_NAMES = [
   "neo", "morpheus", "trinity", "oracle", "cypher", "tank", "dozer", "switch",
@@ -228,344 +164,6 @@ function buildLabelMap(sessionIds: string[]): Map<string, string> {
   return map;
 }
 
-function updateAccumulator(sessionId: string, parsed: ParsedSession): void {
-  const prev = accumulators.get(sessionId);
-  const { stats } = parsed;
-
-  const source = parsed.session.path.includes("/.codex/") ? "codex" : "claude";
-  const currentModelUsage = new Map<string, { source: "claude" | "codex"; tokens: number; turns: number }>();
-  for (const turn of parsed.turns) {
-    const tokenCount = turn.tokenUsage.inputTokens
-      + turn.tokenUsage.outputTokens
-      + turn.tokenUsage.cacheReadInputTokens
-      + turn.tokenUsage.cacheCreationInputTokens;
-    if (turn.model) {
-      const entry = currentModelUsage.get(turn.model) ?? { source, tokens: 0, turns: 0 };
-      entry.tokens += tokenCount;
-      entry.turns += 1;
-      currentModelUsage.set(turn.model, entry);
-    }
-  }
-  const mergedModelUsage = new Map(prev?.modelUsage ?? new Map());
-  for (const [model, data] of currentModelUsage) {
-    const prevData = mergedModelUsage.get(model);
-    if (!prevData || data.tokens > prevData.tokens) {
-      mergedModelUsage.set(model, data);
-    }
-  }
-
-  const acc: SessionAccumulator = {
-    totalTurns: Math.max(prev?.totalTurns ?? 0, stats.totalTurns),
-    totalToolCalls: Math.max(prev?.totalToolCalls ?? 0, stats.toolCalls),
-    totalCommits: Math.max(prev?.totalCommits ?? 0, stats.commits),
-    totalCompactions: Math.max(prev?.totalCompactions ?? 0, stats.compactions),
-    totalErrorTurns: Math.max(prev?.totalErrorTurns ?? 0, stats.errorTurns),
-    totalCorrectionTurns: Math.max(prev?.totalCorrectionTurns ?? 0, stats.correctionTurns),
-    totalTokenUsage: maxTokenUsage(prev?.totalTokenUsage, stats.totalTokenUsage),
-    filesChanged: unionSets(prev?.filesChanged, new Set(stats.filesChanged)),
-    toolsUsed: mergeToolsUsed(prev?.toolsUsed, stats.toolsUsed),
-    primaryModel: stats.primaryModel ?? prev?.primaryModel ?? null,
-    plans: [],
-    errorHistory: [],
-    modelUsage: mergedModelUsage,
-  };
-
-  // Plans: keep all plan cycles; fall back to accumulator if current parse yields nothing
-  const currentPlans = buildSessionPlans(parsed, "");
-  if (currentPlans.length > 0) {
-    acc.plans = currentPlans;
-  } else {
-    acc.plans = prev?.plans ?? [];
-  }
-
-  // Error history: extend on compaction, replace on normal growth
-  const prevHistory = prev?.errorHistory ?? [];
-  const currentErrors = parsed.turns.map(t => t.hasError);
-  if (prev && prev.totalTurns > parsed.turns.length) {
-    // Compaction: keep old history, append new post-compaction turns
-    acc.errorHistory = [...prevHistory, ...currentErrors];
-  } else {
-    // Normal: current parse is the full history
-    acc.errorHistory = currentErrors;
-  }
-
-  accumulators.set(sessionId, acc);
-}
-
-function mergeAccumulatorIntoStats(acc: SessionAccumulator, parsed: ParsedSession): void {
-  // Compaction: accumulated baseline + post-compaction delta (current parse)
-  parsed.stats.totalTurns = acc.totalTurns + parsed.stats.totalTurns;
-  parsed.stats.toolCalls = acc.totalToolCalls + parsed.stats.toolCalls;
-  parsed.stats.commits = acc.totalCommits + parsed.stats.commits;
-  parsed.stats.compactions = acc.totalCompactions; // already counted
-  parsed.stats.errorTurns = acc.totalErrorTurns + parsed.stats.errorTurns;
-  parsed.stats.correctionTurns = acc.totalCorrectionTurns + parsed.stats.correctionTurns;
-  parsed.stats.totalTokenUsage = addTokenUsage(acc.totalTokenUsage, parsed.stats.totalTokenUsage);
-  parsed.stats.filesChanged = [...new Set([...acc.filesChanged, ...parsed.stats.filesChanged])];
-  parsed.stats.toolsUsed = mergeToolsUsed(acc.toolsUsed, parsed.stats.toolsUsed);
-  parsed.stats.primaryModel = parsed.stats.primaryModel ?? acc.primaryModel;
-}
-
-function getCachedOrParse(session: SessionInfo): ParsedSession {
-  const cached = parseCache.get(session.id);
-  let currentMtime: number;
-
-  try {
-    currentMtime = statSync(session.path).mtimeMs;
-  } catch {
-    // File may have been deleted; parse fresh
-    currentMtime = 0;
-  }
-
-  if (cached && cached.mtimeMs === currentMtime) {
-    return cached.parsed;
-  }
-
-  const events = parseSessionFile(session.path);
-  const systemMeta = parseSystemLines(session.path);
-  const parsed = buildParsedSession(session, events, systemMeta);
-
-  // Compaction detection: accumulator had more turns than current parse
-  const acc = accumulators.get(session.id);
-  const isCompaction = acc && acc.totalTurns > parsed.turns.length;
-
-  if (isCompaction) {
-    mergeAccumulatorIntoStats(acc, parsed);
-  }
-
-  // Always update accumulator to reflect current state
-  updateAccumulator(session.id, parsed);
-
-  parseCache.set(session.id, { mtimeMs: currentMtime, parsed });
-  return parsed;
-}
-
-// ─── Codex parse cache (separate from Claude) ───────────────────────────────
-
-const codexParseCache = new Map<string, CacheEntry>();
-
-function isCodexSession(session: SessionInfo): boolean {
-  return session.path.includes("/.codex/");
-}
-
-function getCachedOrParseCodex(session: SessionInfo): ParsedSession {
-  const cached = codexParseCache.get(session.id);
-  let currentMtime: number;
-
-  try {
-    currentMtime = statSync(session.path).mtimeMs;
-  } catch {
-    currentMtime = 0;
-  }
-
-  if (cached && cached.mtimeMs === currentMtime) {
-    return cached.parsed;
-  }
-
-  const events = parseCodexSessionFile(session.path);
-  const parsed = buildCodexParsedSession(session, events);
-
-  codexParseCache.set(session.id, { mtimeMs: currentMtime, parsed });
-  return parsed;
-}
-
-// ─── Plan builder ────────────────────────────────────────────────────────────
-
-function finalizePlan(
-  tasks: PlanTask[],
-  taskStatuses: Map<string, string>,
-  markdown: string | null,
-  inPlanMode: boolean,
-  planAccepted: boolean,
-  planRejected: boolean,
-  agentLabel: string,
-  timestamp: Date,
-  planDurationMs: number | null,
-  draftingActivity: DraftingActivity | null,
-  postAcceptEdits: boolean,
-  postAcceptCommit: boolean,
-): SessionPlan | null {
-  // Apply final statuses
-  for (const task of tasks) {
-    const latest = taskStatuses.get(task.id);
-    if (latest === "completed" || latest === "in_progress" || latest === "pending" || latest === "deleted") {
-      task.status = latest;
-    }
-  }
-
-  const activeTasks = tasks.filter(t => t.status !== "deleted");
-
-  // Determine status — tasks are the ground truth
-  let status: PlanStatus = "none";
-
-  if (activeTasks.length > 0) {
-    if (activeTasks.every(t => t.status === "completed")) {
-      status = "completed";
-    } else if (activeTasks.some(t => t.status === "in_progress" || t.status === "completed")) {
-      status = "implementing";
-    } else {
-      status = "drafting";
-    }
-  } else if (markdown || inPlanMode || planAccepted || planRejected) {
-    if (planRejected) {
-      status = "rejected";
-    } else if (postAcceptCommit) {
-      status = "completed";
-    } else if (postAcceptEdits) {
-      status = "implementing";
-    } else if (inPlanMode || planAccepted || markdown) {
-      status = "drafting";
-    }
-  }
-
-  if (status === "none") return null;
-
-  // Only attach drafting activity when status is "drafting"
-  const activity = status === "drafting" ? draftingActivity : null;
-
-  return { status, markdown, tasks: activeTasks, agentLabel, timestamp, planDurationMs, draftingActivity: activity, isFromActiveSession: false };
-}
-
-function buildSessionPlans(parsed: ParsedSession, agentLabel: string): SessionPlan[] {
-  const finalized: SessionPlan[] = [];
-
-  // Current plan cycle accumulator
-  let markdown: string | null = null;
-  let planAccepted = false;
-  let planRejected = false;
-  let inPlanMode = false;
-  let lastPlanTs: Date = parsed.session.createdAt;
-  let planStartTs: Date | null = null;
-  let planDurationMs: number | null = null;
-  let tasks: PlanTask[] = [];
-  let taskStatuses = new Map<string, string>();
-
-  // Post-acceptance activity signals (for task-less plans)
-  let postAcceptEdits = false;
-  let postAcceptCommit = false;
-
-  // Drafting activity accumulator
-  let draftFiles: Set<string> = new Set();
-  let draftSearches: string[] = [];
-  let draftToolCounts: Record<string, number> = {};
-  let draftApproach = "";
-  let draftLastActivity: Date | null = null;
-  let draftTurnCount = 0;
-
-  function resetDraftingActivity(): void {
-    draftFiles = new Set();
-    draftSearches = [];
-    draftToolCounts = {};
-    draftApproach = "";
-    draftLastActivity = null;
-    draftTurnCount = 0;
-  }
-
-  function buildDraftingActivity(): DraftingActivity | null {
-    if (draftTurnCount === 0) return null;
-    return {
-      filesExplored: [...draftFiles],
-      searches: draftSearches,
-      toolCounts: { ...draftToolCounts },
-      approachSummary: draftApproach,
-      lastActivityAt: draftLastActivity!,
-      turnCount: draftTurnCount,
-    };
-  }
-
-  for (const turn of parsed.turns) {
-    if (turn.hasPlanStart) {
-      // Finalize current plan cycle (if it has any content)
-      const plan = finalizePlan(tasks, taskStatuses, markdown, inPlanMode, planAccepted, planRejected, agentLabel, lastPlanTs, planDurationMs, buildDraftingActivity(), postAcceptEdits, postAcceptCommit);
-      if (plan) finalized.push(plan);
-
-      // Start fresh cycle
-      tasks = [];
-      taskStatuses = new Map();
-      markdown = null;
-      inPlanMode = true;
-      planAccepted = false;
-      planRejected = false;
-      postAcceptEdits = false;
-      postAcceptCommit = false;
-      lastPlanTs = turn.timestamp;
-      planStartTs = turn.timestamp;
-      planDurationMs = null;
-      resetDraftingActivity();
-    }
-    if (turn.hasPlanEnd && !turn.planRejected) {
-      inPlanMode = false;
-      planAccepted = true;
-      planRejected = false;
-      markdown = turn.planMarkdown ?? markdown;
-      lastPlanTs = turn.timestamp;
-      if (planStartTs) {
-        planDurationMs = turn.timestamp.getTime() - planStartTs.getTime();
-      }
-    }
-    if (turn.hasPlanEnd && turn.planRejected) {
-      inPlanMode = false;
-      planAccepted = false;
-      planRejected = true;
-      lastPlanTs = turn.timestamp;
-      planDurationMs = null;
-    }
-
-    // Accumulate drafting activity while in plan mode
-    if (inPlanMode) {
-      draftTurnCount++;
-      draftLastActivity = turn.timestamp;
-
-      for (const f of turn.filesRead) draftFiles.add(f);
-
-      for (const s of turn.sections.research.searches) draftSearches.push(s);
-
-      for (const [tool, count] of Object.entries(turn.toolCounts)) {
-        draftToolCounts[tool] = (draftToolCounts[tool] ?? 0) + count;
-      }
-
-      if (turn.sections.approach.summary) {
-        draftApproach = turn.sections.approach.summary;
-      }
-    }
-
-    // Track post-acceptance activity for task-less plans
-    // Fires for both ExitPlanMode-accepted plans and planContent-sourced plans
-    if ((planAccepted || markdown) && !inPlanMode) {
-      if (turn.filesChanged.length > 0) postAcceptEdits = true;
-      if (turn.hasCommit) postAcceptCommit = true;
-    }
-
-    // Cross-session plan: planMarkdown from JSONL envelope
-    if (turn.planMarkdown && !markdown) {
-      markdown = turn.planMarkdown;
-      lastPlanTs = turn.timestamp;
-    }
-
-    for (const tc of turn.taskCreates) {
-      if (tc.taskId) {
-        tasks.push({
-          id: tc.taskId,
-          subject: tc.subject,
-          description: tc.description,
-          status: "pending",
-        });
-        lastPlanTs = turn.timestamp;
-      }
-    }
-
-    for (const tu of turn.taskUpdates) {
-      taskStatuses.set(tu.taskId, tu.status);
-      lastPlanTs = turn.timestamp;
-    }
-  }
-
-  // Finalize the last plan cycle
-  const lastPlan = finalizePlan(tasks, taskStatuses, markdown, inPlanMode, planAccepted, planRejected, agentLabel, lastPlanTs, planDurationMs, buildDraftingActivity(), postAcceptEdits, postAcceptCommit);
-  if (lastPlan) finalized.push(lastPlan);
-
-  return finalized;
-}
 
 // ─── Intent map helpers ─────────────────────────────────────────────────────
 
@@ -583,18 +181,6 @@ interface IntentInsights {
   driftReasons: string[];
 }
 
-function buildCanonicalSessionPlans(
-  parsed: ParsedSession,
-  label: string,
-  isActive: boolean,
-): SessionPlan[] {
-  const sessionAcc = accumulators.get(parsed.session.id);
-  let plans = buildSessionPlans(parsed, label);
-  if (plans.length === 0 && sessionAcc?.plans?.length) {
-    plans = sessionAcc.plans.map((plan) => ({ ...plan, agentLabel: label }));
-  }
-  return plans.map((plan) => ({ ...plan, isFromActiveSession: isActive }));
-}
 
 function hasEvidence(task: IntentTaskView): boolean {
   return task.evidence.edits > 0 || task.evidence.commits > 0 || task.evidence.lastTouchedAt !== null;
@@ -1022,7 +608,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   for (const parsed of parsedSessions) {
     const label = labelMap.get(parsed.session.id) ?? parsed.session.id.slice(0, 8);
     const isActive = activeSessionIds.has(parsed.session.id);
-    sessionPlansMap.set(parsed.session.id, buildCanonicalSessionPlans(parsed, label, isActive));
+    const priorPlans = getAccumulatorPlans(parsed.session.id);
+    sessionPlansMap.set(parsed.session.id, buildCanonicalSessionPlans(parsed, label, isActive, priorPlans));
   }
 
   // 5b. Cache uncommitted files per project
@@ -1050,7 +637,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     const plans = sessionPlansMap.get(parsed.session.id) ?? [];
 
     // Risk: pass accumulated error history for trend continuity, and accumulated cost/model costs for compaction
-    const sessionAcc = accumulators.get(parsed.session.id);
+    const sessionAcc = getAccumulator(parsed.session.id);
     const risk = computeAgentRisk(parsed, sessionAcc?.errorHistory, sessionAcc?.modelUsage);
 
     const blockedOn = status === "blocked"
@@ -1087,7 +674,8 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     try {
       const parsed = getCachedOrParse(session);
       const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
-      const plans = buildCanonicalSessionPlans(parsed, label, false);
+      const histPriorPlans = getAccumulatorPlans(session.id);
+      const plans = buildCanonicalSessionPlans(parsed, label, false, histPriorPlans);
       if (plans.length === 0) continue;
       const pp = parsed.session.projectPath;
       if (!historicalPlansMap.has(pp)) historicalPlansMap.set(pp, []);
@@ -1385,21 +973,12 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   const localPlanCollisions: DashboardState["localPlanCollisions"] = [];
 
   // ─── Cache GC: evict entries for sessions no longer in the working set ───
-  // Without this, parseCache/codexParseCache/accumulators grow unbounded as
-  // sessions age past the discovery window (24h recent + 7d historical).
+  // Without this, caches grow unbounded as sessions age past the discovery window.
   const liveSessionIds = new Set<string>([
     ...allSessions.keys(),
     ...historicalSessions.keys(),
   ]);
-  for (const id of parseCache.keys()) {
-    if (!liveSessionIds.has(id)) parseCache.delete(id);
-  }
-  for (const id of codexParseCache.keys()) {
-    if (!liveSessionIds.has(id)) codexParseCache.delete(id);
-  }
-  for (const id of accumulators.keys()) {
-    if (!liveSessionIds.has(id)) accumulators.delete(id);
-  }
+  evictStaleCacheEntries(liveSessionIds);
 
   return {
     state: { operators, agents: activeAgents, workstreams, collisions: [], localPlanCollisions, feed, summary },

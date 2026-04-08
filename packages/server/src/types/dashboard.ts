@@ -129,6 +129,8 @@ export interface SessionPlan {
   agentLabel: string;
   /** When this plan was last updated (latest relevant turn timestamp) */
   timestamp: Date;
+  /** When this plan cycle started — stable identity anchor (survives compaction/reparse) */
+  planStartedAt: Date;
   /** Duration from plan start to plan end/approved (ms) */
   planDurationMs: number | null;
   /** Activity data accumulated during drafting phase (only when status === "drafting") */

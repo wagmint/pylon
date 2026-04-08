@@ -32,6 +32,7 @@ function makePlan(overrides?: Partial<SessionPlan>): SessionPlan {
     tasks: [],
     agentLabel: "agent-1",
     timestamp: NOW,
+    planStartedAt: NOW,
     planDurationMs: null,
     draftingActivity: null,
     isFromActiveSession: true,
