@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@hexdeck/dashboard-ui": "*",
+    "@xyflow/react": "^12.10.2",
     "clsx": "^2.1.1",
+    "dagre": "^0.8.5",
     "framer-motion": "^12.26.2",
     "lucide-react": "^0.462.0",
     "next": "^15.1.0",
