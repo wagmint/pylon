@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
+import { codexAdapter } from "../providers/codex/adapter.js";
 import { listProjects, listSessions } from "../providers/claude/discovery.js";
-import type { AgentProviderAdapter, ProviderSessionRef } from "../providers/types.js";
+import type { AgentProviderAdapter, ParsedProviderSession, ProviderSessionRef } from "../providers/types.js";
 import { toProviderSessionRef } from "../providers/types.js";
 import { withTransaction } from "./db.js";
 import { replaceParsedEvidence } from "./evidence.js";
@@ -61,13 +62,48 @@ export async function syncSessionsToStorage(
   phase: "syncing" | "rebuilding" = "syncing",
 ): Promise<{ projectCount: number; sessionCount: number }> {
   const sessions = await adapter.discoverSessions();
+  const parsedBySessionId = new Map<string, ParsedProviderSession>();
+  for (const session of sessions) {
+    const transcriptSourceId = upsertTranscriptSource(session);
+    ensureIngestionCheckpoint(transcriptSourceId);
+    upsertSession(session, transcriptSourceId);
+    if (shouldIngestTranscriptSource(session, transcriptSourceId)) {
+      parsedBySessionId.set(session.id, await adapter.parseSession(session));
+    }
+  }
   const projectCount = new Set(sessions.map((session) => session.projectPath)).size;
   return syncProviderSessionRefsToStorage({
     provider: adapter.provider,
     phase,
     projectCount,
     sessions,
+    parsedBySessionId,
   });
+}
+
+export async function syncAllSessionsToStorage(
+  phase: "syncing" | "rebuilding" = "syncing",
+): Promise<{ projectCount: number; sessionCount: number }> {
+  const claude = syncClaudeSessionsToStorage(phase);
+  let codex = { projectCount: 0, sessionCount: 0 };
+  let codexError: string | null = null;
+  try {
+    codex = await syncSessionsToStorage(codexAdapter, phase);
+  } catch (error) {
+    codexError = error instanceof Error ? error.message : String(error);
+  }
+
+  const result = {
+    projectCount: claude.projectCount + codex.projectCount,
+    sessionCount: claude.sessionCount + codex.sessionCount,
+  };
+  lastSyncStatus = {
+    phase: "ready",
+    lastSyncedAt: new Date().toISOString(),
+    errorMessage: codexError ? `Codex sync failed: ${codexError}` : null,
+    ...result,
+  };
+  return result;
 }
 
 function syncProviderSessionRefsToStorage({
@@ -75,11 +111,13 @@ function syncProviderSessionRefsToStorage({
   phase,
   projectCount,
   sessions,
+  parsedBySessionId,
 }: {
   provider: ProviderSessionRef["provider"];
   phase: "syncing" | "rebuilding";
   projectCount: number;
   sessions: ProviderSessionRef[];
+  parsedBySessionId?: Map<string, ParsedProviderSession>;
 }): { projectCount: number; sessionCount: number } {
   lastSyncStatus = {
     ...lastSyncStatus,
@@ -96,23 +134,27 @@ function syncProviderSessionRefsToStorage({
         const transcriptSourceId = upsertTranscriptSource(session);
         ensureIngestionCheckpoint(transcriptSourceId);
         upsertSession(session, transcriptSourceId);
-        ingestTranscriptSource(session, transcriptSourceId);
-        deriveAndStoreSessionState(session.id);
-        deriveAndStoreTasksForSession(session.id);
+        ingestTranscriptSource(session, transcriptSourceId, parsedBySessionId?.get(session.id));
+        if (provider === "claude") {
+          deriveAndStoreSessionState(session.id);
+          deriveAndStoreTasksForSession(session.id);
+        }
         seenSessionIds.push(session.id);
         seenProjectPaths.add(session.projectPath);
       }
 
       // Run task derivation a second time after every session has been ingested so
       // cross-session attachment can see explicit tasks created later in discovery order.
-      for (const sessionId of seenSessionIds) {
-        deriveAndStoreTasksForSession(sessionId);
-      }
+      if (provider === "claude") {
+        for (const sessionId of seenSessionIds) {
+          deriveAndStoreTasksForSession(sessionId);
+        }
 
-      for (const projectPath of seenProjectPaths) {
-        deriveAndStoreWorkstreamsForProject(projectPath);
-        deriveAndStoreM6ForProject(projectPath);
-        deriveAndStoreHandoffsForProject(projectPath);
+        for (const projectPath of seenProjectPaths) {
+          deriveAndStoreWorkstreamsForProject(projectPath);
+          deriveAndStoreM6ForProject(projectPath);
+          deriveAndStoreHandoffsForProject(projectPath);
+        }
       }
 
       markMissingTranscriptSourcesInactive(provider, seenSessionIds);
@@ -143,7 +185,11 @@ export function getStorageSyncStatus(): StorageSyncStatus {
   return lastSyncStatus;
 }
 
-function ingestTranscriptSource(ref: ProviderSessionRef, transcriptSourceId: number): void {
+function ingestTranscriptSource(
+  ref: ProviderSessionRef,
+  transcriptSourceId: number,
+  parsed?: ParsedProviderSession,
+): void {
   const checkpoint = getIngestionCheckpoint(transcriptSourceId);
   if (!checkpoint) {
     throw new Error(`Missing ingestion checkpoint for transcript source ${transcriptSourceId}`);
@@ -174,7 +220,7 @@ function ingestTranscriptSource(ref: ProviderSessionRef, transcriptSourceId: num
   markIngestionCheckpointStatus(transcriptSourceId, "processing");
 
   try {
-    const progress = replaceParsedEvidence({ ref });
+    const progress = replaceParsedEvidence({ ref, parsed });
     updateIngestionCheckpointProgress(transcriptSourceId, progress, "ready");
   } catch (error) {
     markIngestionCheckpointStatus(
@@ -184,4 +230,16 @@ function ingestTranscriptSource(ref: ProviderSessionRef, transcriptSourceId: num
     );
     throw error;
   }
+}
+
+function shouldIngestTranscriptSource(ref: ProviderSessionRef, transcriptSourceId: number): boolean {
+  const checkpoint = getIngestionCheckpoint(transcriptSourceId);
+  if (!checkpoint) return true;
+
+  const fileSizeBytes = statSync(ref.sourcePath).size;
+  return !(
+    checkpoint.parserVersion === STORAGE_PARSER_VERSION &&
+    checkpoint.lastProcessedByteOffset === fileSizeBytes &&
+    checkpoint.status === "ready"
+  );
 }

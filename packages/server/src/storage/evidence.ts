@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 import { buildParsedSession } from "../core/nodes.js";
+import { buildCodexParsedSession } from "../providers/codex/nodes.js";
+import { parseCodexSessionFile, type CodexEvent } from "../providers/codex/parser.js";
 import { parseSessionFile, parseSystemLines, getMessageText, getToolCalls, getToolResults, hasCompaction, getThinkingText } from "../parser/jsonl.js";
-import type { SessionEvent, SessionInfo, TurnNode } from "../types/index.js";
+import type { ParsedSession, SessionEvent, SessionInfo, ToolCallSummary, TurnNode } from "../types/index.js";
 import type { ParsedProviderSession, ProviderSessionRef } from "../providers/types.js";
 import { toProviderSessionRef } from "../providers/types.js";
 import { getDb } from "./db.js";
@@ -79,6 +81,7 @@ export interface StoredCommitRow {
   sessionId: string;
   turnIndex: number;
   lineNumber: number;
+  commandToolCallId: string | null;
   commitMessage: string | null;
   commitSha: string | null;
 }
@@ -121,10 +124,14 @@ export interface ReplaceParsedEvidenceInput {
 
 export function replaceParsedEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
   const { ref } = input;
-  if (ref.provider !== "claude") {
-    throw new Error(`replaceParsedEvidence only supports Claude evidence in PR 3, got ${ref.provider}`);
+  if (ref.provider === "codex") {
+    return replaceCodexParsedEvidence(input);
   }
+  return replaceClaudeProviderEvidence(input);
+}
 
+function replaceClaudeProviderEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
+  const { ref } = input;
   const rawContent = readFileSync(ref.sourcePath, "utf-8");
   const totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
   const events = parseSessionFile(ref.sourcePath);
@@ -136,23 +143,8 @@ export function replaceParsedEvidence(input: ReplaceParsedEvidenceInput): Ingest
 
   deleteExistingEvidence(ref.id);
 
-  const insertTurn = db.prepare(`
-    INSERT INTO turns(
-      source_type, session_id, turn_index, started_at, start_line, end_line, category, summary,
-      user_instruction, assistant_preview, has_commit, has_push, has_pull,
-      commit_message, commit_sha, has_error, error_count, has_compaction, compaction_text,
-      has_plan_start, has_plan_end, plan_markdown, plan_rejected, model,
-      input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-      context_window_tokens, duration_ms, sections_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertEvent = db.prepare(`
-    INSERT INTO events(
-      source_type, session_id, turn_index, line_number, role, event_type, timestamp, text,
-      plan_content, model, input_tokens, output_tokens, cache_read_input_tokens,
-      cache_creation_input_tokens, raw_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  insertParsedTurns(ref, parsed);
+  const insertEvent = prepareInsertEvent();
   const insertMessage = db.prepare(`
     INSERT INTO messages(session_id, turn_index, line_number, role, timestamp, text)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -191,40 +183,6 @@ export function replaceParsedEvidence(input: ReplaceParsedEvidenceInput): Ingest
   `);
 
   for (const turn of parsed.turns) {
-    insertTurn.run(
-      ref.provider,
-      ref.id,
-      turn.index,
-      turn.timestamp.toISOString(),
-      turn.startLine,
-      turn.endLine,
-      turn.category,
-      turn.summary,
-      turn.userInstruction,
-      turn.assistantPreview,
-      turn.hasCommit ? 1 : 0,
-      turn.hasPush ? 1 : 0,
-      turn.hasPull ? 1 : 0,
-      turn.commitMessage,
-      turn.commitSha,
-      turn.hasError ? 1 : 0,
-      turn.errorCount,
-      turn.hasCompaction ? 1 : 0,
-      turn.compactionText,
-      turn.hasPlanStart ? 1 : 0,
-      turn.hasPlanEnd ? 1 : 0,
-      turn.planMarkdown,
-      turn.planRejected ? 1 : 0,
-      turn.model,
-      turn.tokenUsage.inputTokens,
-      turn.tokenUsage.outputTokens,
-      turn.tokenUsage.cacheReadInputTokens,
-      turn.tokenUsage.cacheCreationInputTokens,
-      turn.contextWindowTokens,
-      turn.durationMs,
-      JSON.stringify(turn.sections),
-    );
-
     const commitCall = findGitCommitToolCall(turn);
     if (turn.hasCommit) {
       insertCommit.run(
@@ -381,6 +339,222 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
   return replaceParsedEvidence({ ref: toProviderSessionRef("claude", session) });
 }
 
+function replaceCodexParsedEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
+  const { ref } = input;
+  const rawContent = readFileSync(ref.sourcePath, "utf-8");
+  const totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
+  const events = parseCodexSessionFile(ref.sourcePath);
+  const parsed = input.parsed?.parsed ?? buildCodexParsedSession(ref, events);
+  const eventTurnIndex = buildEventTurnIndex(parsed.turns);
+  const db = getDb();
+
+  deleteExistingEvidence(ref.id);
+  insertParsedTurns(ref, parsed);
+  updateSessionProviderMetadata(ref, parsed);
+
+  const insertEvent = prepareInsertEvent();
+  const insertToolCall = db.prepare(`
+    INSERT INTO tool_calls(session_id, turn_index, line_number, call_id, tool_name, input_json, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertFileTouch = db.prepare(`
+    INSERT INTO file_touches(session_id, turn_index, line_number, tool_call_id, file_path, module_key, action, source_tool, detail, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertCommand = db.prepare(`
+    INSERT INTO commands(session_id, turn_index, line_number, tool_call_id, command_text, is_git_commit, is_git_push, is_git_pull, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertCommit = db.prepare(`
+    INSERT INTO commits(session_id, turn_index, line_number, command_tool_call_id, commit_message, commit_sha, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertError = db.prepare(`
+    INSERT INTO errors(session_id, turn_index, line_number, tool_use_id, tool_name, message, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const event of events) {
+    const turnIndex = eventTurnIndex.get(event.line) ?? null;
+    insertEvent.run(
+      ref.provider,
+      ref.id,
+      turnIndex,
+      event.line,
+      deriveCodexRole(event),
+      event.type,
+      event.timestamp.toISOString(),
+      codexEventText(event),
+      null,
+      event.type === "session_meta" ? event.model ?? null : null,
+      event.type === "token_count" ? event.inputTokens : 0,
+      event.type === "token_count" ? event.outputTokens : 0,
+      event.type === "token_count" ? event.cachedInputTokens : 0,
+      0,
+      JSON.stringify(serializeCodexEvent(event)),
+    );
+
+    if (event.type === "exec_command") {
+      const commandText = event.command.join(" ");
+      const callId = `codex-exec-${event.line}`;
+      insertToolCall.run(
+        ref.id,
+        turnIndex,
+        event.line,
+        callId,
+        "exec_command",
+        JSON.stringify({ command: commandText, exitCode: event.exitCode, status: event.status }),
+        event.timestamp.toISOString(),
+      );
+      insertCommand.run(
+        ref.id,
+        turnIndex,
+        event.line,
+        callId,
+        commandText,
+        isGitCommit(commandText) ? 1 : 0,
+        isGitPush(commandText) ? 1 : 0,
+        isGitPull(commandText) ? 1 : 0,
+        event.timestamp.toISOString(),
+      );
+      if (event.exitCode === 0 && isGitCommit(commandText)) {
+        insertCommit.run(
+          ref.id,
+          turnIndex ?? 0,
+          event.line,
+          callId,
+          extractCodexCommitMessage(commandText),
+          null,
+          event.timestamp.toISOString(),
+        );
+      }
+      if (event.exitCode !== 0) {
+        insertError.run(
+          ref.id,
+          turnIndex,
+          event.line,
+          callId,
+          "exec_command",
+          `Command failed (exit ${event.exitCode}): ${commandText}`,
+          event.timestamp.toISOString(),
+        );
+      }
+    } else if (event.type === "patch_apply") {
+      const callId = `codex-patch-${event.line}`;
+      insertToolCall.run(
+        ref.id,
+        turnIndex,
+        event.line,
+        callId,
+        "patch_apply",
+        JSON.stringify({ files: event.files, success: event.success }),
+        event.timestamp.toISOString(),
+      );
+      for (const filePath of event.files) {
+        insertFileTouch.run(
+          ref.id,
+          turnIndex,
+          event.line,
+          callId,
+          filePath,
+          deriveModuleKey(ref.projectPath, filePath),
+          "edit",
+          "patch_apply",
+          event.success ? null : "patch failed",
+          event.timestamp.toISOString(),
+        );
+      }
+      if (!event.success) {
+        insertError.run(
+          ref.id,
+          turnIndex,
+          event.line,
+          callId,
+          "patch_apply",
+          `Patch failed: ${event.files.join(", ")}`,
+          event.timestamp.toISOString(),
+        );
+      }
+    } else if (event.type === "error") {
+      insertError.run(
+        ref.id,
+        turnIndex,
+        event.line,
+        null,
+        null,
+        event.message,
+        event.timestamp.toISOString(),
+      );
+    }
+  }
+
+  return {
+    lastProcessedLine: totalLines,
+    lastProcessedByteOffset: Buffer.byteLength(rawContent, "utf-8"),
+    lastProcessedTimestamp: events.at(-1)?.timestamp?.toISOString() ?? null,
+  };
+}
+
+function insertParsedTurns(ref: ProviderSessionRef, parsed: ParsedSession): void {
+  const db = getDb();
+  const insertTurn = db.prepare(`
+    INSERT INTO turns(
+      source_type, session_id, turn_index, started_at, start_line, end_line, category, summary,
+      user_instruction, assistant_preview, has_commit, has_push, has_pull,
+      commit_message, commit_sha, has_error, error_count, has_compaction, compaction_text,
+      has_plan_start, has_plan_end, plan_markdown, plan_rejected, model,
+      input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+      context_window_tokens, duration_ms, sections_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const turn of parsed.turns) {
+    insertTurn.run(
+      ref.provider,
+      ref.id,
+      turn.index,
+      turn.timestamp.toISOString(),
+      turn.startLine,
+      turn.endLine,
+      turn.category,
+      turn.summary,
+      turn.userInstruction,
+      turn.assistantPreview,
+      turn.hasCommit ? 1 : 0,
+      turn.hasPush ? 1 : 0,
+      turn.hasPull ? 1 : 0,
+      turn.commitMessage,
+      turn.commitSha,
+      turn.hasError ? 1 : 0,
+      turn.errorCount,
+      turn.hasCompaction ? 1 : 0,
+      turn.compactionText,
+      turn.hasPlanStart ? 1 : 0,
+      turn.hasPlanEnd ? 1 : 0,
+      turn.planMarkdown,
+      turn.planRejected ? 1 : 0,
+      turn.model,
+      turn.tokenUsage.inputTokens,
+      turn.tokenUsage.outputTokens,
+      turn.tokenUsage.cacheReadInputTokens,
+      turn.tokenUsage.cacheCreationInputTokens,
+      turn.contextWindowTokens,
+      turn.durationMs,
+      JSON.stringify(turn.sections),
+    );
+  }
+}
+
+function prepareInsertEvent() {
+  return getDb().prepare(`
+    INSERT INTO events(
+      source_type, session_id, turn_index, line_number, role, event_type, timestamp, text,
+      plan_content, model, input_tokens, output_tokens, cache_read_input_tokens,
+      cache_creation_input_tokens, raw_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+}
+
 export function listStoredTurns(sessionId?: string): StoredTurnRow[] {
   const db = getDb();
   const sql = `
@@ -511,6 +685,7 @@ export function listStoredCommits(sessionId?: string): StoredCommitRow[] {
       session_id as sessionId,
       turn_index as turnIndex,
       line_number as lineNumber,
+      command_tool_call_id as commandToolCallId,
       commit_message as commitMessage,
       commit_sha as commitSha
     FROM commits
@@ -856,6 +1031,96 @@ function findGitCommitToolCall(turn: TurnNode): { id: string; input: Record<stri
   return null;
 }
 
+function deriveCodexRole(event: CodexEvent): string {
+  switch (event.type) {
+    case "user_message":
+      return "user";
+    case "agent_message":
+    case "agent_reasoning":
+      return "assistant";
+    case "exec_command":
+    case "patch_apply":
+    case "web_search":
+    case "view_image":
+      return "tool";
+    default:
+      return "system";
+  }
+}
+
+function codexEventText(event: CodexEvent): string {
+  switch (event.type) {
+    case "session_meta":
+      return event.cwd || event.id;
+    case "turn_aborted":
+      return event.reason;
+    case "user_message":
+    case "agent_message":
+    case "agent_reasoning":
+      return event.text;
+    case "exec_command":
+      return event.command.join(" ");
+    case "patch_apply":
+      return event.files.join("\n");
+    case "web_search":
+      return event.query || event.action;
+    case "view_image":
+      return event.path;
+    case "token_count":
+      return `input=${event.inputTokens} output=${event.outputTokens} cached=${event.cachedInputTokens}`;
+    case "compaction":
+      return event.summary;
+    case "error":
+      return event.message;
+    default:
+      return "";
+  }
+}
+
+function serializeCodexEvent(event: CodexEvent): Record<string, unknown> {
+  return {
+    ...event,
+    timestamp: event.timestamp.toISOString(),
+  };
+}
+
+function updateSessionProviderMetadata(ref: ProviderSessionRef, parsed: ParsedSession): void {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT metadata_json as metadataJson
+    FROM sessions
+    WHERE id = ?
+  `).get(ref.id) as { metadataJson: string | null } | undefined;
+  let metadata: Record<string, unknown> = {};
+  if (row?.metadataJson) {
+    try {
+      const parsedMetadata = JSON.parse(row.metadataJson);
+      if (parsedMetadata && typeof parsedMetadata === "object") {
+        metadata = parsedMetadata as Record<string, unknown>;
+      }
+    } catch {
+      metadata = {};
+    }
+  }
+
+  metadata.provider = ref.provider;
+  metadata.path = ref.sourcePath;
+  metadata.sizeBytes = ref.sourceSizeBytes;
+  if (parsed.codexRuntime) {
+    metadata.codexRuntime = {
+      ...parsed.codexRuntime,
+      lastEventAt: parsed.codexRuntime.lastEventAt?.toISOString() ?? null,
+      lastToolActivityAt: parsed.codexRuntime.lastToolActivityAt?.toISOString() ?? null,
+    };
+  }
+
+  db.prepare(`
+    UPDATE sessions
+    SET metadata_json = ?
+    WHERE id = ?
+  `).run(JSON.stringify(metadata), ref.id);
+}
+
 function extractCommand(input: Record<string, unknown>): string | null {
   if (typeof input.command === "string") return input.command;
   if (typeof input.cmd === "string") return input.cmd;
@@ -880,7 +1145,12 @@ function extractErrorSummary(content: string): string {
 }
 
 function isGitCommit(command: string): boolean {
-  return /git\s+commit/.test(command);
+  return /\bgit\b(?:\s+-\S+(?:\s+\S+)*)?\s+\bcommit\b/.test(command);
+}
+
+function extractCodexCommitMessage(command: string): string | null {
+  const match = command.match(/\bgit\b(?:\s+-\S+(?:\s+\S+)*)?\s+\bcommit\b\s+.*?-m\s+["']([^"']+)["']/);
+  return match?.[1] ?? null;
 }
 
 function isGitPush(command: string): boolean {
