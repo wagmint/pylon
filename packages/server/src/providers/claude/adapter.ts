@@ -1,20 +1,15 @@
-import { listProjects, listSessions, getActiveSessions } from "../../discovery/sessions.js";
-import { parseSessionFile } from "../../parser/jsonl.js";
+import { listProjects, listSessions, getActiveSessions } from "./discovery.js";
+import { parseSessionFile } from "./parser.js";
 import { getCachedOrParse } from "../../core/session-cache.js";
-import { isSessionStopped } from "../../core/blocked.js";
 import type { SessionEvent } from "../../types/index.js";
+import { inferClaudeSessionStatus, resolveClaudeBusyIdle } from "./lifecycle.js";
 import type {
   AgentProviderAdapter,
-  BusyIdleContext,
   DiscoveryOpts,
   ParsedProviderSession,
   ProviderSessionRef,
-  SessionLifecycle,
 } from "../types.js";
 import { toProviderSessionRef } from "../types.js";
-
-const CLAUDE_IDLE_THRESHOLD_MS = 120_000;
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 function claudeDirFromOpts(opts?: DiscoveryOpts): string | undefined {
   return opts?.claudeDir ?? opts?.providerDir;
@@ -70,34 +65,7 @@ export const claudeAdapter: AgentProviderAdapter = {
     };
   },
 
-  inferSessionStatus(
-    ref: ProviderSessionRef,
-    parsed,
-    isActive: boolean,
-  ): SessionLifecycle {
-    if (isActive) {
-      const status = this.resolveBusyIdle(parsed, true, {});
-      return { status: status === "busy" ? "active" : "idle", endedAt: null, endReason: null };
-    }
+  inferSessionStatus: inferClaudeSessionStatus,
 
-    const nowMs = Date.now();
-    if (nowMs - ref.sourceMtime.getTime() > STALE_THRESHOLD_MS) {
-      return { status: "stale", endedAt: null, endReason: "stale" };
-    }
-
-    return { status: "idle", endedAt: null, endReason: null };
-  },
-
-  resolveBusyIdle(parsed, isActive: boolean, context: BusyIdleContext): "busy" | "idle" {
-    if (!isActive) return "idle";
-
-    const lastTurn = parsed.turns[parsed.turns.length - 1];
-    if (lastTurn?.category === "interruption") return "idle";
-
-    const mtimeMs = parsed.session.modifiedAt.getTime();
-    if (isSessionStopped(parsed.session.id, mtimeMs)) return "idle";
-
-    const nowMs = context.nowMs ?? Date.now();
-    return nowMs - mtimeMs > CLAUDE_IDLE_THRESHOLD_MS ? "idle" : "busy";
-  },
+  resolveBusyIdle: resolveClaudeBusyIdle,
 };

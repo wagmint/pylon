@@ -1,18 +1,14 @@
-import { discoverCodexSessions, getActiveCodexSessions } from "../../discovery/codex.js";
-import { parseCodexSessionFile, type CodexEvent } from "../../parser/codex.js";
-import { resolveCodexBusyIdle } from "../../core/codex-status.js";
+import { discoverCodexSessions, getActiveCodexSessions } from "./discovery.js";
+import { parseCodexSessionFile, type CodexEvent } from "./parser.js";
 import { getCachedOrParseCodex } from "../../core/session-cache.js";
+import { inferCodexSessionStatus, resolveCodexSessionBusyIdle } from "./lifecycle.js";
 import type {
   AgentProviderAdapter,
-  BusyIdleContext,
   DiscoveryOpts,
   ParsedProviderSession,
   ProviderSessionRef,
-  SessionLifecycle,
 } from "../types.js";
 import { toProviderSessionRef } from "../types.js";
-
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 function codexDirFromOpts(opts?: DiscoveryOpts): string | undefined {
   return opts?.codexDir ?? opts?.providerDir;
@@ -56,41 +52,7 @@ export const codexAdapter: AgentProviderAdapter = {
     };
   },
 
-  inferSessionStatus(
-    ref: ProviderSessionRef,
-    parsed,
-    isActive: boolean,
-  ): SessionLifecycle {
-    const runtime = parsed.codexRuntime;
-    if (runtime?.lastEventType === "shutdown") {
-      return {
-        status: "ended",
-        endedAt: runtime.lastEventAt?.toISOString() ?? null,
-        endReason: "explicit_shutdown",
-      };
-    }
+  inferSessionStatus: inferCodexSessionStatus,
 
-    if (isActive) {
-      const status = this.resolveBusyIdle(parsed, true, {});
-      return { status: status === "busy" ? "active" : "idle", endedAt: null, endReason: null };
-    }
-
-    const nowMs = Date.now();
-    if (nowMs - ref.sourceMtime.getTime() > STALE_THRESHOLD_MS) {
-      return { status: "stale", endedAt: null, endReason: "stale" };
-    }
-
-    return { status: "idle", endedAt: null, endReason: null };
-  },
-
-  resolveBusyIdle(parsed, isActive: boolean, context: BusyIdleContext): "busy" | "idle" {
-    if (!isActive) return "idle";
-    return resolveCodexBusyIdle({
-      nowMs: context.nowMs ?? Date.now(),
-      sessionMtimeMs: parsed.session.modifiedAt.getTime(),
-      processAlive: isActive,
-      runtime: parsed.codexRuntime,
-      lastTurn: parsed.turns[parsed.turns.length - 1],
-    });
-  },
+  resolveBusyIdle: resolveCodexSessionBusyIdle,
 };
