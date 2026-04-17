@@ -56,8 +56,12 @@ describe("parsed evidence storage", () => {
     await mod.initStorage();
     mod.syncClaudeSessionsToStorage();
 
-    expect(mod.listStoredTurns("session-evidence")).toHaveLength(2);
-    expect(mod.listStoredEvents("session-evidence")).toHaveLength(6);
+    const turns = mod.listStoredTurns("session-evidence");
+    const events = mod.listStoredEvents("session-evidence");
+    expect(turns).toHaveLength(2);
+    expect(events).toHaveLength(6);
+    expect(turns.every((turn) => turn.sourceType === "claude")).toBe(true);
+    expect(events.every((event) => event.sourceType === "claude")).toBe(true);
     expect(mod.listStoredMessages("session-evidence")).toHaveLength(6);
     expect(mod.listStoredToolCalls("session-evidence")).toHaveLength(8);
     expect(mod.listStoredToolResults("session-evidence")).toHaveLength(6);

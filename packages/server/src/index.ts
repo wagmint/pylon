@@ -17,8 +17,10 @@ export {
   listTranscriptSources,
   listIngestionCheckpoints,
   listStoredClaudeSessions,
+  listStoredSessions,
 } from "./storage/repositories.js";
 export {
+  replaceParsedEvidence,
   listStoredTurns,
   listStoredEvents,
   listStoredMessages,
@@ -89,7 +91,7 @@ export {
   type HandoffRow,
   type HandoffAttachmentRow,
 } from "./storage/handoffs.js";
-export { syncClaudeSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
+export { syncClaudeSessionsToStorage, syncSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";
 export type { ParsedConnectLink, ExchangedRelayCredentials } from "./relay/link.js";

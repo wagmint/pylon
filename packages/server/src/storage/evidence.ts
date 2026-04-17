@@ -3,10 +3,13 @@ import { isAbsolute, relative } from "node:path";
 import { buildParsedSession } from "../core/nodes.js";
 import { parseSessionFile, parseSystemLines, getMessageText, getToolCalls, getToolResults, hasCompaction, getThinkingText } from "../parser/jsonl.js";
 import type { SessionEvent, SessionInfo, TurnNode } from "../types/index.js";
+import type { ParsedProviderSession, ProviderSessionRef } from "../providers/types.js";
+import { toProviderSessionRef } from "../providers/types.js";
 import { getDb } from "./db.js";
 import type { IngestionCheckpointProgress } from "./repositories.js";
 
 export interface StoredTurnRow {
+  sourceType: string;
   sessionId: string;
   turnIndex: number;
   category: string;
@@ -16,6 +19,7 @@ export interface StoredTurnRow {
 }
 
 export interface StoredEventRow {
+  sourceType: string;
   sessionId: string;
   turnIndex: number | null;
   lineNumber: number;
@@ -110,34 +114,44 @@ export interface StoredPlanItemRow {
   rawText: string | null;
 }
 
-export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionCheckpointProgress {
-  const rawContent = readFileSync(session.path, "utf-8");
+export interface ReplaceParsedEvidenceInput {
+  ref: ProviderSessionRef;
+  parsed?: ParsedProviderSession;
+}
+
+export function replaceParsedEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
+  const { ref } = input;
+  if (ref.provider !== "claude") {
+    throw new Error(`replaceParsedEvidence only supports Claude evidence in PR 3, got ${ref.provider}`);
+  }
+
+  const rawContent = readFileSync(ref.sourcePath, "utf-8");
   const totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
-  const events = parseSessionFile(session.path);
-  const systemMeta = parseSystemLines(session.path);
-  const parsed = buildParsedSession(session, events, systemMeta);
+  const events = parseSessionFile(ref.sourcePath);
+  const systemMeta = parseSystemLines(ref.sourcePath);
+  const parsed = input.parsed?.parsed ?? buildParsedSession(ref, events, systemMeta);
   const eventTurnIndex = buildEventTurnIndex(parsed.turns);
   const toolCallNameById = buildToolCallNameById(events);
   const db = getDb();
 
-  deleteExistingEvidence(session.id);
+  deleteExistingEvidence(ref.id);
 
   const insertTurn = db.prepare(`
     INSERT INTO turns(
-      session_id, turn_index, started_at, start_line, end_line, category, summary,
+      source_type, session_id, turn_index, started_at, start_line, end_line, category, summary,
       user_instruction, assistant_preview, has_commit, has_push, has_pull,
       commit_message, commit_sha, has_error, error_count, has_compaction, compaction_text,
       has_plan_start, has_plan_end, plan_markdown, plan_rejected, model,
       input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
       context_window_tokens, duration_ms, sections_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertEvent = db.prepare(`
     INSERT INTO events(
-      session_id, turn_index, line_number, role, event_type, timestamp, text,
+      source_type, session_id, turn_index, line_number, role, event_type, timestamp, text,
       plan_content, model, input_tokens, output_tokens, cache_read_input_tokens,
       cache_creation_input_tokens, raw_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertMessage = db.prepare(`
     INSERT INTO messages(session_id, turn_index, line_number, role, timestamp, text)
@@ -178,7 +192,8 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
 
   for (const turn of parsed.turns) {
     insertTurn.run(
-      session.id,
+      ref.provider,
+      ref.id,
       turn.index,
       turn.timestamp.toISOString(),
       turn.startLine,
@@ -213,7 +228,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const commitCall = findGitCommitToolCall(turn);
     if (turn.hasCommit) {
       insertCommit.run(
-        session.id,
+        ref.id,
         turn.index,
         turn.startLine,
         commitCall?.id ?? null,
@@ -226,7 +241,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const approvals = deriveApprovals(turn);
     for (const approval of approvals) {
       insertApproval.run(
-        session.id,
+        ref.id,
         turn.index,
         turn.startLine,
         approval.approvalType,
@@ -239,7 +254,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const planItems = derivePlanItems(turn);
     for (const item of planItems) {
       insertPlanItem.run(
-        session.id,
+        ref.id,
         turn.index,
         turn.startLine,
         item.source,
@@ -258,7 +273,8 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const turnIndex = eventTurnIndex.get(event.line) ?? null;
     const text = getMessageText(event.message);
     insertEvent.run(
-      session.id,
+      ref.provider,
+      ref.id,
       turnIndex,
       event.line,
       event.message.role,
@@ -275,7 +291,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     );
 
     insertMessage.run(
-      session.id,
+      ref.id,
       turnIndex,
       event.line,
       event.message.role,
@@ -286,7 +302,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const calls = getToolCalls(event.message);
     for (const call of calls) {
       insertToolCall.run(
-        session.id,
+        ref.id,
         turnIndex,
         event.line,
         call.id,
@@ -297,9 +313,9 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
 
       const touches = deriveFileTouches(call);
       for (const touch of touches) {
-        const moduleKey = deriveModuleKey(session.projectPath, touch.filePath);
+        const moduleKey = deriveModuleKey(ref.projectPath, touch.filePath);
         insertFileTouch.run(
-          session.id,
+          ref.id,
           turnIndex,
           event.line,
           call.id,
@@ -315,7 +331,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
       const command = extractCommand(call.input);
       if (call.name === "Bash" && command) {
         insertCommand.run(
-          session.id,
+          ref.id,
           turnIndex,
           event.line,
           call.id,
@@ -331,7 +347,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
     const results = getToolResults(event.message);
     for (const result of results) {
       insertToolResult.run(
-        session.id,
+        ref.id,
         turnIndex,
         event.line,
         result.tool_use_id,
@@ -342,7 +358,7 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
 
       if (result.is_error) {
         insertError.run(
-          session.id,
+          ref.id,
           turnIndex,
           event.line,
           result.tool_use_id || null,
@@ -361,11 +377,16 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
   };
 }
 
+export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionCheckpointProgress {
+  return replaceParsedEvidence({ ref: toProviderSessionRef("claude", session) });
+}
+
 export function listStoredTurns(sessionId?: string): StoredTurnRow[] {
   const db = getDb();
   const sql = `
     SELECT
       session_id as sessionId,
+      source_type as sourceType,
       turn_index as turnIndex,
       category,
       summary,
@@ -383,6 +404,7 @@ export function listStoredEvents(sessionId?: string): StoredEventRow[] {
   const sql = `
     SELECT
       session_id as sessionId,
+      source_type as sourceType,
       turn_index as turnIndex,
       line_number as lineNumber,
       role,

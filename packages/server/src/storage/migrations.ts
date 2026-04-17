@@ -811,6 +811,18 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_handoff_id ON handoff_artifacts(handoff_id)`,
     ],
   },
+  {
+    id: 9,
+    name: "provider_source_type_on_evidence",
+    up: [
+      `ALTER TABLE turns ADD COLUMN source_type TEXT NOT NULL DEFAULT 'claude'`,
+      `ALTER TABLE events ADD COLUMN source_type TEXT NOT NULL DEFAULT 'claude'`,
+      `UPDATE turns SET source_type = 'claude' WHERE source_type IS NULL OR source_type = ''`,
+      `UPDATE events SET source_type = 'claude' WHERE source_type IS NULL OR source_type = ''`,
+      `CREATE INDEX IF NOT EXISTS idx_turns_source_type ON turns(source_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_events_source_type ON events(source_type)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {

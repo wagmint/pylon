@@ -1,4 +1,6 @@
 import type { SessionInfo } from "../types/index.js";
+import type { AgentProvider, ProviderSessionRef, SessionLifecycle } from "../providers/types.js";
+import { toProviderSessionRef } from "../providers/types.js";
 import { getDb } from "./db.js";
 
 export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m5-workstreams-v2";
@@ -47,7 +49,7 @@ export interface StoredSessionRow {
   metadataJson: string | null;
 }
 
-export function upsertClaudeTranscriptSource(session: SessionInfo): number {
+export function upsertTranscriptSource(ref: ProviderSessionRef): number {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -70,11 +72,11 @@ export function upsertClaudeTranscriptSource(session: SessionInfo): number {
       last_seen_at = excluded.last_seen_at,
       is_active = 1
   `).run(
-    "claude",
-    session.id,
-    session.path,
-    session.sizeBytes,
-    session.modifiedAt.toISOString(),
+    ref.provider,
+    ref.id,
+    ref.sourcePath,
+    ref.sourceSizeBytes,
+    ref.sourceMtime.toISOString(),
     now,
     now,
   );
@@ -83,16 +85,20 @@ export function upsertClaudeTranscriptSource(session: SessionInfo): number {
     SELECT id
     FROM transcript_sources
     WHERE source_type = ? AND session_id = ?
-  `).get("claude", session.id) as { id: number } | undefined;
+  `).get(ref.provider, ref.id) as { id: number } | undefined;
 
   if (!row) {
-    throw new Error(`Failed to upsert transcript source for session ${session.id}`);
+    throw new Error(`Failed to upsert transcript source for ${ref.provider} session ${ref.id}`);
   }
 
   return row.id;
 }
 
-export function ensureClaudeIngestionCheckpoint(transcriptSourceId: number): void {
+export function upsertClaudeTranscriptSource(session: SessionInfo): number {
+  return upsertTranscriptSource(toProviderSessionRef("claude", session));
+}
+
+export function ensureIngestionCheckpoint(transcriptSourceId: number): void {
   const db = getDb();
   db.prepare(`
     INSERT INTO ingestion_checkpoints(
@@ -139,7 +145,11 @@ export function ensureClaudeIngestionCheckpoint(transcriptSourceId: number): voi
   );
 }
 
-export function getClaudeIngestionCheckpoint(
+export function ensureClaudeIngestionCheckpoint(transcriptSourceId: number): void {
+  ensureIngestionCheckpoint(transcriptSourceId);
+}
+
+export function getIngestionCheckpoint(
   transcriptSourceId: number,
 ): IngestionCheckpointRow | null {
   const db = getDb();
@@ -159,7 +169,13 @@ export function getClaudeIngestionCheckpoint(
   `).get(transcriptSourceId) as IngestionCheckpointRow | null;
 }
 
-export function markClaudeIngestionCheckpointStatus(
+export function getClaudeIngestionCheckpoint(
+  transcriptSourceId: number,
+): IngestionCheckpointRow | null {
+  return getIngestionCheckpoint(transcriptSourceId);
+}
+
+export function markIngestionCheckpointStatus(
   transcriptSourceId: number,
   status: "pending" | "processing" | "ready" | "error",
   errorMessage: string | null = null,
@@ -175,7 +191,15 @@ export function markClaudeIngestionCheckpointStatus(
   `).run(status, errorMessage, new Date().toISOString(), transcriptSourceId);
 }
 
-export function resetClaudeIngestionCheckpoint(
+export function markClaudeIngestionCheckpointStatus(
+  transcriptSourceId: number,
+  status: "pending" | "processing" | "ready" | "error",
+  errorMessage: string | null = null,
+): void {
+  markIngestionCheckpointStatus(transcriptSourceId, status, errorMessage);
+}
+
+export function resetIngestionCheckpoint(
   transcriptSourceId: number,
   status: "pending" | "error" = "pending",
   errorMessage: string | null = null,
@@ -194,7 +218,15 @@ export function resetClaudeIngestionCheckpoint(
   `).run(new Date().toISOString(), status, errorMessage, transcriptSourceId);
 }
 
-export function updateClaudeIngestionCheckpointProgress(
+export function resetClaudeIngestionCheckpoint(
+  transcriptSourceId: number,
+  status: "pending" | "error" = "pending",
+  errorMessage: string | null = null,
+): void {
+  resetIngestionCheckpoint(transcriptSourceId, status, errorMessage);
+}
+
+export function updateIngestionCheckpointProgress(
   transcriptSourceId: number,
   progress: IngestionCheckpointProgress,
   status: "ready" | "pending" = "ready",
@@ -220,8 +252,25 @@ export function updateClaudeIngestionCheckpointProgress(
   );
 }
 
-export function upsertClaudeSession(session: SessionInfo, transcriptSourceId: number): void {
+export function updateClaudeIngestionCheckpointProgress(
+  transcriptSourceId: number,
+  progress: IngestionCheckpointProgress,
+  status: "ready" | "pending" = "ready",
+): void {
+  updateIngestionCheckpointProgress(transcriptSourceId, progress, status);
+}
+
+export function upsertSession(
+  ref: ProviderSessionRef,
+  transcriptSourceId: number,
+  lifecycle?: SessionLifecycle,
+): void {
   const db = getDb();
+  const metadata = {
+    provider: ref.provider,
+    path: ref.sourcePath,
+    sizeBytes: ref.sourceSizeBytes,
+  };
   db.prepare(`
     INSERT INTO sessions(
       id,
@@ -238,35 +287,48 @@ export function upsertClaudeSession(session: SessionInfo, transcriptSourceId: nu
     )
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'discovered', ?)
     ON CONFLICT(id) DO UPDATE SET
+      source_type = excluded.source_type,
       transcript_source_id = excluded.transcript_source_id,
       project_path = excluded.project_path,
       cwd = excluded.cwd,
       last_event_at = excluded.last_event_at,
       metadata_json = excluded.metadata_json
   `).run(
-    session.id,
-    "claude",
+    ref.id,
+    ref.provider,
     transcriptSourceId,
-    session.projectPath,
+    ref.projectPath,
     // TODO: populate cwd from transcript parsing once the parsed evidence layer lands.
-    session.projectPath,
-    session.createdAt.toISOString(),
-    session.modifiedAt.toISOString(),
-    JSON.stringify({
-      path: session.path,
-      sizeBytes: session.sizeBytes,
-    }),
+    ref.projectPath,
+    ref.createdAt.toISOString(),
+    ref.modifiedAt.toISOString(),
+    JSON.stringify(metadata),
   );
+
+  if (lifecycle) {
+    db.prepare(`
+      UPDATE sessions
+      SET status = ?, ended_at = ?
+      WHERE id = ?
+    `).run(lifecycle.status, lifecycle.endedAt, ref.id);
+  }
 }
 
-export function markMissingClaudeTranscriptSourcesInactive(activeSessionIds: string[]): void {
+export function upsertClaudeSession(session: SessionInfo, transcriptSourceId: number): void {
+  upsertSession(toProviderSessionRef("claude", session), transcriptSourceId);
+}
+
+export function markMissingTranscriptSourcesInactive(
+  provider: AgentProvider,
+  activeSessionIds: string[],
+): void {
   const db = getDb();
   if (activeSessionIds.length === 0) {
     db.prepare(`
       UPDATE transcript_sources
       SET is_active = 0
-      WHERE source_type = 'claude' AND is_active = 1
-    `).run();
+      WHERE source_type = ? AND is_active = 1
+    `).run(provider);
     return;
   }
 
@@ -274,15 +336,19 @@ export function markMissingClaudeTranscriptSourcesInactive(activeSessionIds: str
   db.prepare(`
     UPDATE transcript_sources
     SET is_active = 0
-    WHERE source_type = 'claude'
+    WHERE source_type = ?
       AND is_active = 1
       AND session_id NOT IN (${placeholders})
-  `).run(...activeSessionIds);
+  `).run(provider, ...activeSessionIds);
 }
 
-export function listStoredClaudeSessions(): StoredSessionRow[] {
+export function markMissingClaudeTranscriptSourcesInactive(activeSessionIds: string[]): void {
+  markMissingTranscriptSourcesInactive("claude", activeSessionIds);
+}
+
+export function listStoredSessions(provider?: AgentProvider): StoredSessionRow[] {
   const db = getDb();
-  return db.prepare(`
+  const sql = `
     SELECT
       id,
       source_type as sourceType,
@@ -296,9 +362,14 @@ export function listStoredClaudeSessions(): StoredSessionRow[] {
       status,
       metadata_json as metadataJson
     FROM sessions
-    WHERE source_type = 'claude'
+    ${provider ? "WHERE source_type = ?" : ""}
     ORDER BY last_event_at DESC
-  `).all() as StoredSessionRow[];
+  `;
+  return (provider ? db.prepare(sql).all(provider) : db.prepare(sql).all()) as StoredSessionRow[];
+}
+
+export function listStoredClaudeSessions(): StoredSessionRow[] {
+  return listStoredSessions("claude");
 }
 
 export function listTranscriptSources(): TranscriptSourceRow[] {

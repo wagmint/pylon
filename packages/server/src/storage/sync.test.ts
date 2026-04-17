@@ -14,7 +14,8 @@ interface LoadedModules {
     status: string;
   }>;
   listStoredClaudeSessions: () => Array<{ id: string; projectPath: string }>;
-  listTranscriptSources: () => Array<{ sessionId: string; fileSizeBytes: number; isActive: boolean }>;
+  listStoredSessions: (provider?: "claude" | "codex") => Array<{ id: string; sourceType: string; projectPath: string }>;
+  listTranscriptSources: () => Array<{ sessionId: string; sourceType: string; fileSizeBytes: number; isActive: boolean }>;
   syncClaudeSessionsToStorage: () => { projectCount: number; sessionCount: number };
 }
 
@@ -53,12 +54,15 @@ describe("storage sync foundation", () => {
     expect(mod.listStoredClaudeSessions()).toEqual([
       expect.objectContaining({
         id: "session-a",
+        sourceType: "claude",
         projectPath: "/tmp/demo/project",
       }),
     ]);
+    expect(mod.listStoredSessions("claude")).toEqual(mod.listStoredClaudeSessions());
     expect(mod.listTranscriptSources()).toEqual([
       expect.objectContaining({
         sessionId: "session-a",
+        sourceType: "claude",
         fileSizeBytes: statSync(transcript).size,
         isActive: 1,
       }),
@@ -173,6 +177,7 @@ async function loadModules(root: string, parserVersion: string): Promise<LoadedM
     initStorage: db.initStorage,
     listIngestionCheckpoints: repositories.listIngestionCheckpoints,
     listStoredClaudeSessions: repositories.listStoredClaudeSessions,
+    listStoredSessions: repositories.listStoredSessions,
     listTranscriptSources: repositories.listTranscriptSources,
     syncClaudeSessionsToStorage: sync.syncClaudeSessionsToStorage,
   };
