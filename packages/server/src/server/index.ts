@@ -8,6 +8,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { listProjects, listSessions, getActiveSessions } from "../discovery/sessions.js";
 import { getActiveCodexSessions } from "../discovery/codex.js";
 import { buildDashboardState, buildDashboardSnapshot } from "../core/dashboard.js";
+import { toProviderSessionRef } from "../providers/index.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
@@ -19,6 +20,7 @@ import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
 import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
+import type { DashboardState } from "../types/index.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +35,7 @@ function serializeDate(d: Date): string {
   return d instanceof Date ? d.toISOString() : String(d);
 }
 
-function serializeState(state: ReturnType<typeof buildDashboardState>) {
+function serializeState(state: DashboardState) {
   return {
     ...state,
     collisions: state.collisions.map((col) => ({
@@ -62,6 +64,7 @@ let lastPushedJson = "";
 let lastBroadcastTime = 0;
 let tickerInterval: ReturnType<typeof setInterval> | null = null;
 let sseMessageId = 0;
+let tickerRunning = false;
 
 function shouldTickerRun() {
   return clients.size > 0 || relayManager.hasTargets;
@@ -70,36 +73,47 @@ function shouldTickerRun() {
 function startTicker() {
   if (tickerInterval) return;
   tickerInterval = setInterval(() => {
+    if (tickerRunning) return;
+    tickerRunning = true;
     const activeSessions = getActiveSessions();
     clearStaleBlocked(activeSessions);
-    const snapshot = buildDashboardSnapshot(activeSessions);
-    const rawState = snapshot.state;
+    void (async () => {
+      try {
+        const prefetchedActiveSessions = activeSessions.map((session) => toProviderSessionRef("claude", session));
+        const snapshot = await buildDashboardSnapshot(prefetchedActiveSessions);
+        const rawState = snapshot.state;
 
-    // Relay (does its own diff check per connection)
-    relayManager.onStateUpdate(rawState, snapshot.parsedSessions);
+        // Relay (does its own diff check per connection)
+        relayManager.onStateUpdate(rawState, snapshot.parsedSessions);
 
-    // SSE (existing logic)
-    const data = serializeState(rawState);
-    const json = JSON.stringify(data);
-    if (json === lastPushedJson) {
-      // No state change — send heartbeat every 5s to keep connection alive
-      if (Date.now() - lastBroadcastTime >= 5000) {
-        lastBroadcastTime = Date.now();
-        for (const client of clients) {
-          client.stream.writeSSE({ event: "hb", data: "" }).catch(() => {});
+        // SSE (existing logic)
+        const data = serializeState(rawState);
+        const json = JSON.stringify(data);
+        if (json === lastPushedJson) {
+          // No state change — send heartbeat every 5s to keep connection alive
+          if (Date.now() - lastBroadcastTime >= 5000) {
+            lastBroadcastTime = Date.now();
+            for (const client of clients) {
+              client.stream.writeSSE({ event: "hb", data: "" }).catch(() => {});
+            }
+          }
+          return;
         }
+        lastPushedJson = json;
+        lastBroadcastTime = Date.now();
+        sseMessageId++;
+        const id = String(sseMessageId);
+        for (const client of clients) {
+          client.stream.writeSSE({ data: json, event: "state", id }).catch(() => {
+            // Client disconnected — will be cleaned up by onAbort
+          });
+        }
+      } catch (error) {
+        console.error("[dashboard] ticker failed:", error);
+      } finally {
+        tickerRunning = false;
       }
-      return;
-    }
-    lastPushedJson = json;
-    lastBroadcastTime = Date.now();
-    sseMessageId++;
-    const id = String(sseMessageId);
-    for (const client of clients) {
-      client.stream.writeSSE({ data: json, event: "state", id }).catch(() => {
-        // Client disconnected — will be cleaned up by onAbort
-      });
-    }
+    })();
   }, 1000);
 }
 
@@ -175,8 +189,8 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   // ─── Dashboard Routes ─────────────────────────────────────────────────────
 
   /** Full dashboard state */
-  app.get("/api/dashboard", (c) => {
-    return c.json(serializeState(buildDashboardState()));
+  app.get("/api/dashboard", async (c) => {
+    return c.json(serializeState(await buildDashboardState()));
   });
 
   /** SSE stream — pushes dashboard state on change */
@@ -185,7 +199,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       const client: SSEClient = { stream };
 
       // Send current state immediately
-      const data = serializeState(buildDashboardState());
+      const data = serializeState(await buildDashboardState());
       const json = JSON.stringify(data);
       sseMessageId++;
       await stream.writeSSE({ data: json, event: "state", id: String(sseMessageId) });
@@ -203,9 +217,9 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   });
 
   /** Dashboard feed only */
-  app.get("/api/dashboard/feed", (c) => {
+  app.get("/api/dashboard/feed", async (c) => {
     const limit = parseInt(c.req.query("limit") ?? "50", 10);
-    const state = buildDashboardState();
+    const state = await buildDashboardState();
     const feed = state.feed.slice(0, limit);
     return c.json(
       feed.map((ev) => ({
