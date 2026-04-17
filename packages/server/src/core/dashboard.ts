@@ -1,23 +1,22 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { basename, join } from "path";
 import { homedir } from "os";
-import { getActiveSessions, listProjects, listSessions } from "../discovery/sessions.js";
-import { getActiveCodexSessions, discoverCodexSessions } from "../discovery/codex.js";
+import { claudeAdapter, codexAdapter, providerAdapters } from "../providers/index.js";
+import type { AgentProviderAdapter, ProviderSessionRef } from "../providers/index.js";
+import { listProjects } from "../providers/claude/discovery.js";
 import { getUncommittedFiles } from "./collisions.js";
 import { buildFeed } from "./feed.js";
-import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail, isSessionStopped } from "./blocked.js";
+import { hasBlockedSession, getBlockedForSession, describeBlockedTool, extractToolDetail } from "./blocked.js";
 import { formatIdleDuration } from "./duration.js";
 import { computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import { buildTurnSummaries } from "./turn-summaries.js";
-import { resolveCodexBusyIdle } from "./codex-status.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import { buildCanonicalSessionPlans } from "./plans.js";
 import {
-  getCachedOrParse, getCachedOrParseCodex, isCodexSession,
   getAccumulator, getAccumulatorPlans, evictStaleCacheEntries,
 } from "./session-cache.js";
 import type {
-  ParsedSession, SessionInfo, Agent, AgentStatus, TurnNode,
+  ParsedSession, Agent, AgentStatus, TurnNode,
   Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
   SessionPlan, IntentTaskView,
 } from "../types/index.js";
@@ -437,9 +436,10 @@ function buildIntentInsights(
 const RECENT_GRACE_MS = 24 * 60 * 60 * 1000; // 24 hours
 /** How far back to scan for historical plans (beyond RECENT_GRACE_MS) */
 const PLAN_HISTORY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const adapterByProvider = new Map(providerAdapters.map((adapter) => [adapter.provider, adapter]));
 
-export function buildDashboardState(prefetchedActiveSessions?: SessionInfo[]): DashboardState {
-  return buildDashboardSnapshot(prefetchedActiveSessions).state;
+export async function buildDashboardState(prefetchedActiveSessions?: ProviderSessionRef[]): Promise<DashboardState> {
+  return (await buildDashboardSnapshot(prefetchedActiveSessions)).state;
 }
 
 export interface DashboardSnapshot {
@@ -447,7 +447,35 @@ export interface DashboardSnapshot {
   parsedSessions: ParsedSession[];
 }
 
-export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[]): DashboardSnapshot {
+async function discoverDashboardSessions(
+  adapter: AgentProviderAdapter,
+  opts?: Parameters<AgentProviderAdapter["discoverSessions"]>[0],
+): Promise<ProviderSessionRef[]> {
+  return adapter.discoverSessions(opts);
+}
+
+async function getDashboardActiveSessions(adapter: AgentProviderAdapter): Promise<ProviderSessionRef[]> {
+  return adapter.getActiveSessions();
+}
+
+async function parseDashboardSession(adapter: AgentProviderAdapter, ref: ProviderSessionRef): Promise<ParsedSession> {
+  return (await adapter.parseSession(ref)).parsed;
+}
+
+function addSession(
+  sessions: Map<string, ProviderSessionRef>,
+  providerBySessionId: Map<string, AgentProviderAdapter["provider"]>,
+  session: ProviderSessionRef,
+  operatorId: string,
+  sessionOperatorMap: Map<string, string>,
+): void {
+  if (sessions.has(session.id)) return;
+  sessions.set(session.id, session);
+  providerBySessionId.set(session.id, session.provider);
+  if (!sessionOperatorMap.has(session.id)) sessionOperatorMap.set(session.id, operatorId);
+}
+
+export async function buildDashboardSnapshot(prefetchedActiveSessions?: ProviderSessionRef[]): Promise<DashboardSnapshot> {
   // 0. Load operator config
   const config = loadOperatorConfig();
   const selfName = getSelfName(config);
@@ -469,47 +497,47 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   // Session → operator mapping
   const sessionOperatorMap = new Map<string, string>();
 
-  // 1. Get all active sessions (self) — use prefetched if available to avoid redundant pgrep/lsof
-  const activeSessions = prefetchedActiveSessions ?? getActiveSessions();
-  const activeSessionIds = new Set(activeSessions.map(s => s.id));
-
-  // Tag self sessions
-  for (const s of activeSessions) {
-    sessionOperatorMap.set(s.id, "self");
-  }
+  // 1. Include active sessions. The ticker may prefetch Claude refs to avoid a duplicate process scan.
+  const activeSessionIds = new Set<string>();
 
   // 2. Include active sessions + recently-dead sessions from same projects
-  const allSessions = new Map<string, SessionInfo>();
-  for (const s of activeSessions) {
-    allSessions.set(s.id, s);
+  const allSessions = new Map<string, ProviderSessionRef>();
+  const providerBySessionId = new Map<string, AgentProviderAdapter["provider"]>();
+  for (const s of prefetchedActiveSessions ?? []) {
+    addSession(allSessions, providerBySessionId, s, "self", sessionOperatorMap);
+    activeSessionIds.add(s.id);
   }
-
-  const projects = listProjects();
-  const now = Date.now();
-
-  // For each project, include recent inactive sessions
-  for (const project of projects) {
-    const projectSessions = listSessions(project.encodedName);
-    for (const s of projectSessions) {
-      if (allSessions.has(s.id)) continue;
-      if (now - s.modifiedAt.getTime() < RECENT_GRACE_MS) {
-        allSessions.set(s.id, s);
-        if (!sessionOperatorMap.has(s.id)) sessionOperatorMap.set(s.id, "self");
+  for (const adapter of providerAdapters) {
+    if (prefetchedActiveSessions && adapter.provider === "claude") continue;
+    try {
+      for (const s of await getDashboardActiveSessions(adapter)) {
+        addSession(allSessions, providerBySessionId, s, "self", sessionOperatorMap);
+        activeSessionIds.add(s.id);
       }
+    } catch {
+      // Provider active-session discovery failure should not break the dashboard.
     }
   }
 
-  // Codex discovery (self) — fully isolated
-  try {
-    const codexActiveSessions = getActiveCodexSessions();
-    const codexRecent = discoverCodexSessions(1);
-    for (const s of [...codexActiveSessions, ...codexRecent]) {
-      if (allSessions.has(s.id)) continue;
-      allSessions.set(s.id, s);
-      if (!sessionOperatorMap.has(s.id)) sessionOperatorMap.set(s.id, "self");
+  const now = Date.now();
+  // Preserve existing Claude project IDs in dashboard/workstream payloads.
+  const claudeProjects = listProjects();
+
+  // Self provider discovery.
+  for (const adapter of providerAdapters) {
+    try {
+      const sessions = adapter.provider === "codex"
+        ? await discoverDashboardSessions(adapter, { recencyDays: 1 })
+        : await discoverDashboardSessions(adapter);
+      for (const s of sessions) {
+        if (now - s.modifiedAt.getTime() < RECENT_GRACE_MS) {
+          addSession(allSessions, providerBySessionId, s, "self", sessionOperatorMap);
+        }
+      }
+    } catch {
+      // Provider discovery failure should not break the dashboard.
     }
-    for (const s of codexActiveSessions) activeSessionIds.add(s.id);
-  } catch { /* Codex failure — continue Claude-only */ }
+  }
 
   // 2b. Discover sessions from configured operators
   for (const op of config.operators) {
@@ -517,53 +545,42 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     try {
       // Claude sessions for this operator
       if (op.claude) {
-        const opProjects = listProjects(op.claude);
-        for (const project of opProjects) {
-          const opSessions = listSessions(project.encodedName, op.claude);
-          for (const s of opSessions) {
-            if (allSessions.has(s.id)) continue;
-            if (now - s.modifiedAt.getTime() < RECENT_GRACE_MS) {
-              allSessions.set(s.id, s);
-              sessionOperatorMap.set(s.id, opId);
-            }
+        const opSessions = await discoverDashboardSessions(claudeAdapter, { providerDir: op.claude });
+        for (const s of opSessions) {
+          if (now - s.modifiedAt.getTime() < RECENT_GRACE_MS) {
+            addSession(allSessions, providerBySessionId, s, opId, sessionOperatorMap);
           }
         }
       }
       // Codex sessions for this operator
       if (op.codex) {
-        const opCodexSessions = discoverCodexSessions(1, op.codex);
+        const opCodexSessions = await discoverDashboardSessions(codexAdapter, { providerDir: op.codex, recencyDays: 1 });
         for (const s of opCodexSessions) {
-          if (allSessions.has(s.id)) continue;
-          allSessions.set(s.id, s);
-          sessionOperatorMap.set(s.id, opId);
+          addSession(allSessions, providerBySessionId, s, opId, sessionOperatorMap);
         }
       }
     } catch { /* skip broken operator config */ }
   }
 
   // 2c. Collect historical sessions for plan history (beyond RECENT_GRACE_MS, up to PLAN_HISTORY_MS)
-  const historicalSessions = new Map<string, SessionInfo>();
-  for (const project of projects) {
-    for (const s of listSessions(project.encodedName)) {
+  const historicalSessions = new Map<string, ProviderSessionRef>();
+  try {
+    for (const s of await discoverDashboardSessions(claudeAdapter)) {
       if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
-      if (isCodexSession(s)) continue;
       const age = now - s.modifiedAt.getTime();
       if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
         historicalSessions.set(s.id, s);
       }
     }
-  }
+  } catch { /* skip */ }
   for (const op of config.operators) {
     if (!op.claude) continue;
     try {
-      for (const project of listProjects(op.claude)) {
-        for (const s of listSessions(project.encodedName, op.claude)) {
-          if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
-          if (isCodexSession(s)) continue;
-          const age = now - s.modifiedAt.getTime();
-          if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
-            historicalSessions.set(s.id, s);
-          }
+      for (const s of await discoverDashboardSessions(claudeAdapter, { providerDir: op.claude })) {
+        if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
+        const age = now - s.modifiedAt.getTime();
+        if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
+          historicalSessions.set(s.id, s);
         }
       }
     } catch { /* skip */ }
@@ -572,28 +589,15 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   // 3. Parse all sessions
   const parsedSessions: ParsedSession[] = [];
   const sessionLastActivityMs = new Map<string, number>();
-  const claudeParsedIds = new Set<string>();
   const codexSessionIds = new Set<string>();
   for (const session of allSessions.values()) {
-    if (isCodexSession(session)) continue;
+    const adapter = adapterByProvider.get(session.provider);
+    if (!adapter) continue;
     try {
-      parsedSessions.push(getCachedOrParse(session));
+      parsedSessions.push(await parseDashboardSession(adapter, session));
       sessionLastActivityMs.set(session.id, session.modifiedAt.getTime());
-      claudeParsedIds.add(session.id);
-    } catch {
-      // Skip unparseable sessions
-    }
-  }
-
-  // Parse Codex sessions
-  for (const session of allSessions.values()) {
-    if (claudeParsedIds.has(session.id)) continue;
-    if (!isCodexSession(session)) continue;
-    try {
-      parsedSessions.push(getCachedOrParseCodex(session));
-      sessionLastActivityMs.set(session.id, session.modifiedAt.getTime());
-      codexSessionIds.add(session.id);
-    } catch { /* skip broken Codex session */ }
+      if (session.provider === "codex") codexSessionIds.add(session.id);
+    } catch { /* skip broken session */ }
   }
 
   // 4. Build session label map (include historical session IDs for plan labels)
@@ -629,7 +633,9 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     const label = labelMap.get(parsed.session.id) ?? parsed.session.id.slice(0, 8);
     const isActive = activeSessionIds.has(parsed.session.id);
     const isCodexAgent = codexSessionIds.has(parsed.session.id);
-    const status = determineAgentStatus(parsed, isActive, collisionSessionIds, isCodexAgent);
+    const provider = providerBySessionId.get(parsed.session.id) ?? "claude";
+    const adapter = adapterByProvider.get(provider) ?? claudeAdapter;
+    const status = determineAgentStatus(parsed, isActive, collisionSessionIds, adapter);
 
     const lastTurn = parsed.turns[parsed.turns.length - 1];
     const currentTask = lastTurn?.summary ?? "idle";
@@ -672,7 +678,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   const historicalPlansMap = new Map<string, SessionPlan[]>();
   for (const session of historicalSessions.values()) {
     try {
-      const parsed = getCachedOrParse(session);
+      const parsed = await parseDashboardSession(claudeAdapter, session);
       const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
       const histPriorPlans = getAccumulatorPlans(session.id);
       const plans = buildCanonicalSessionPlans(parsed, label, false, histPriorPlans);
@@ -820,7 +826,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
       completionPct = totalTurns > 0 ? Math.round((completedTurns / totalTurns) * 100) : 0;
     }
 
-    const project = projects.find(p => p.decodedPath === projectPath);
+    const project = claudeProjects.find(p => p.decodedPath === projectPath);
     const projectId = project?.encodedName ?? projectPath.replace(/\//g, "-");
 
     const risk = computeWorkstreamRisk(orderedActiveProjectAgents);
@@ -872,7 +878,7 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
     const renderablePlans = histPlans.filter(isRenderablePlan);
     if (renderablePlans.length === 0) continue;
     renderablePlans.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    const project = projects.find(p => p.decodedPath === projectPath);
+    const project = claudeProjects.find(p => p.decodedPath === projectPath);
     const projectId = project?.encodedName ?? projectPath.replace(/\//g, "-");
     workstreams.push({
       projectId,
@@ -986,14 +992,11 @@ export function buildDashboardSnapshot(prefetchedActiveSessions?: SessionInfo[])
   };
 }
 
-/** How long since last file modification before an active session is considered idle */
-const IDLE_THRESHOLD_MS = 120_000; // 2 minutes (fallback — Stop hook handles the normal case for Claude)
-
 function determineAgentStatus(
   parsed: ParsedSession,
   isActive: boolean,
   collisionSessionIds: Set<string>,
-  isCodex = false,
+  adapter: AgentProviderAdapter,
 ): AgentStatus {
   // Blocked: waiting on user permission approval (from CC hook)
   if (hasBlockedSession(parsed.session.id)) return "blocked";
@@ -1008,28 +1011,7 @@ function determineAgentStatus(
 
   // Active process — determine busy vs idle
   if (isActive) {
-    const mtimeMs = parsed.session.modifiedAt.getTime();
-
-    // Instant idle: last turn was interrupted (Stop hook doesn't fire on interrupt)
-    const lastTurn = parsed.turns[parsed.turns.length - 1];
-    if (lastTurn?.category === "interruption") return "idle";
-
-    // Instant idle: Stop hook fired and transcript hasn't changed since (Claude only)
-    if (!isCodex && isSessionStopped(parsed.session.id, mtimeMs)) return "idle";
-
-    // Codex has no Stop hook — use Codex event semantics for responsiveness.
-    if (isCodex) {
-      return resolveCodexBusyIdle({
-        nowMs: Date.now(),
-        sessionMtimeMs: mtimeMs,
-        processAlive: isActive,
-        runtime: parsed.codexRuntime,
-        lastTurn,
-      });
-    }
-
-    // Claude fallback: no recent file writes → idle
-    return Date.now() - mtimeMs > IDLE_THRESHOLD_MS ? "idle" : "busy";
+    return adapter.resolveBusyIdle(parsed, isActive, { nowMs: Date.now() });
   }
 
   return "idle";
