@@ -18,7 +18,7 @@ import { buildAnalyticsState } from "../control/analytics.js";
 import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
-import { getStorageSyncStatus, syncClaudeSessionsToStorage } from "../storage/sync.js";
+import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -744,7 +744,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   app.post("/api/storage/rebuild", async (c) => {
     try {
       await rebuildStorage();
-      const sync = syncClaudeSessionsToStorage("rebuilding");
+      const sync = await syncAllSessionsToStorage("rebuilding");
       return c.json({
         ok: true,
         storage: getStorageInfo(),
@@ -783,7 +783,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 export async function startServer(options?: StartServerOptions): Promise<ServerType> {
   const port = options?.port ?? parseInt(process.env.PORT ?? "7433", 10);
   await initStorage();
-  syncClaudeSessionsToStorage();
+  await syncAllSessionsToStorage();
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

@@ -267,6 +267,7 @@ export function upsertSession(
 ): void {
   const db = getDb();
   const metadata = {
+    ...readSessionMetadata(ref.id),
     provider: ref.provider,
     path: ref.sourcePath,
     sizeBytes: ref.sourceSizeBytes,
@@ -316,6 +317,21 @@ export function upsertSession(
 
 export function upsertClaudeSession(session: SessionInfo, transcriptSourceId: number): void {
   upsertSession(toProviderSessionRef("claude", session), transcriptSourceId);
+}
+
+function readSessionMetadata(sessionId: string): Record<string, unknown> {
+  const row = getDb().prepare(`
+    SELECT metadata_json as metadataJson
+    FROM sessions
+    WHERE id = ?
+  `).get(sessionId) as { metadataJson: string | null } | undefined;
+  if (!row?.metadataJson) return {};
+  try {
+    const parsed = JSON.parse(row.metadataJson);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 export function markMissingTranscriptSourcesInactive(
