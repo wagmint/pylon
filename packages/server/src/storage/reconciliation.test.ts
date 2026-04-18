@@ -152,6 +152,19 @@ describe("session lifecycle reconciliation", () => {
       endReason: "process_gone",
       endedAt: beforeRow.last_event_at,
     });
+
+    // Reconciliation should also materialize a session summary
+    const summary = mod.getSessionSummary("recent-gone");
+    expect(summary).not.toBeNull();
+    expect(summary!.sessionId).toBe("recent-gone");
+    expect(summary!.provider).toBe("claude");
+    expect(summary!.isPartial).toBe(0);
+    expect(summary!.endedAt).toBe(beforeRow.last_event_at);
+    expect(summary!.totalTurns).toBeGreaterThanOrEqual(0);
+
+    // Model costs should exist (empty is fine if no model_family on turns)
+    const costs = mod.listSessionModelCosts("recent-gone");
+    expect(Array.isArray(costs)).toBe(true);
   });
 
   it("skips a provider when getActiveSessions fails, leaving its sessions untouched", async () => {
@@ -350,6 +363,8 @@ interface LoadedModules {
   getStoredSessionRef: (
     sessionId: string,
   ) => import("../providers/types.js").ProviderSessionRef | null;
+  getSessionSummary: (sessionId: string) => import("./session-summaries.js").SessionSummaryRow | null;
+  listSessionModelCosts: (sessionId: string) => import("./session-summaries.js").SessionModelCostRow[];
   claudeAdapter: import("../providers/types.js").AgentProviderAdapter;
   codexAdapter: import("../providers/types.js").AgentProviderAdapter;
 }
@@ -365,6 +380,7 @@ async function loadModules(root: string): Promise<LoadedModules> {
   const repositories = await import("./repositories.js");
   const sync = await import("./sync.js");
   const reconciliation = await import("./reconciliation.js");
+  const summaries = await import("./session-summaries.js");
   const providers = await import("../providers/index.js");
 
   storageClosers.push(() => {
@@ -385,6 +401,8 @@ async function loadModules(root: string): Promise<LoadedModules> {
     reconcileSessionLifecycles: reconciliation.reconcileSessionLifecycles,
     reconcileOnStartup: reconciliation.reconcileOnStartup,
     getStoredSessionRef: repositories.getStoredSessionRef,
+    getSessionSummary: summaries.getSessionSummary,
+    listSessionModelCosts: summaries.listSessionModelCosts,
     claudeAdapter: providers.claudeAdapter,
     codexAdapter: providers.codexAdapter,
   };

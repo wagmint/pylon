@@ -91,6 +91,14 @@ export {
   type HandoffRow,
   type HandoffAttachmentRow,
 } from "./storage/handoffs.js";
+export {
+  materializeSessionSummary,
+  materializePendingSummaries,
+  getSessionSummary,
+  listSessionModelCosts,
+  type SessionSummaryRow,
+  type SessionModelCostRow,
+} from "./storage/session-summaries.js";
 export { syncClaudeSessionsToStorage, syncSessionsToStorage, syncAllSessionsToStorage, getStorageSyncStatus } from "./storage/sync.js";
 export { loadRelayConfig, saveRelayConfig } from "./relay/config.js";
 export { parseConnectLink, exchangeConnectLink } from "./relay/link.js";

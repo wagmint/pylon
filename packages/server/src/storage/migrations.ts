@@ -876,6 +876,67 @@ const MIGRATIONS: Migration[] = [
       `ALTER TABLE sessions ADD COLUMN end_reason TEXT`,
     ],
   },
+  {
+    id: 12,
+    name: "session_summaries",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS session_summaries (
+        session_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        operator_id TEXT,
+        operator_name TEXT,
+        project_path TEXT NOT NULL,
+        git_branch TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_ms INTEGER,
+        is_partial INTEGER NOT NULL DEFAULT 1,
+        total_turns INTEGER NOT NULL DEFAULT 0,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost_usd REAL NOT NULL DEFAULT 0,
+        total_commits INTEGER NOT NULL DEFAULT 0,
+        total_errors INTEGER NOT NULL DEFAULT 0,
+        total_compactions INTEGER NOT NULL DEFAULT 0,
+        error_rate REAL NOT NULL DEFAULT 0,
+        risk_peak TEXT NOT NULL DEFAULT 'nominal',
+        had_spinning INTEGER NOT NULL DEFAULT 0,
+        spinning_types TEXT,
+        plans_created INTEGER NOT NULL DEFAULT 0,
+        plans_completed INTEGER NOT NULL DEFAULT 0,
+        outcome TEXT NOT NULL DEFAULT 'unknown',
+        is_dead_end INTEGER NOT NULL DEFAULT 0,
+        dead_end_reason TEXT,
+        workstream_id TEXT,
+        files_changed TEXT,
+        tools_used TEXT,
+        summarized_at TEXT NOT NULL,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `
+      CREATE TABLE IF NOT EXISTS session_model_costs (
+        session_id TEXT NOT NULL,
+        model_family TEXT NOT NULL,
+        turn_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY(session_id, model_family),
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_session_summaries_operator_started ON session_summaries(operator_id, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_summaries_project_started ON session_summaries(project_path, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_summaries_outcome_started ON session_summaries(outcome, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_session_model_costs_model_family ON session_model_costs(model_family)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
