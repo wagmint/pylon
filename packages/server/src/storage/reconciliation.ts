@@ -8,6 +8,7 @@ import type {
 } from "../providers/types.js";
 import { getDb } from "./db.js";
 import { getStoredSessionRef } from "./repositories.js";
+import { materializeSessionSummary } from "./session-summaries.js";
 
 interface CandidateSessionRow {
   id: string;
@@ -102,6 +103,8 @@ export async function reconcileSessionLifecycles(): Promise<void> {
         WHERE id = ? AND COALESCE(status, '') != 'ended'
         `,
       ).run(lifecycle.endedAt, lifecycle.endReason ?? "process_gone", row.id);
+
+      materializeSessionSummary(row.id);
     } catch (error) {
       console.error(`[reconciliation] failed for session ${row.id}:`, error);
     }
