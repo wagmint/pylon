@@ -14,6 +14,7 @@ interface LoadedModules {
   listSessionModelCosts: (sessionId: string) => import("./session-summaries.js").SessionModelCostRow[];
   enrichSessionSummary: (sessionId: string) => void;
   enrichPendingSummaries: () => number;
+  classifyPendingSummaries: () => number;
 }
 
 const tempRoots: string[] = [];
@@ -504,6 +505,202 @@ describe("session summary enrichment", () => {
   });
 });
 
+// ─── Outcome Classification Tests ───────────────────────────────────────────
+
+describe("session outcome classification", () => {
+  it("classifies productive session with commits", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-prod", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 5; i++) {
+      insertTurn(db, { sessionId: "cls-prod", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    }
+    insertToolCall(db, { sessionId: "cls-prod", turnIndex: 0, toolName: "Read" });
+    insertToolCall(db, { sessionId: "cls-prod", turnIndex: 1, toolName: "Edit" });
+    insertCommit(db, "cls-prod", 2);
+
+    mod.materializeSessionSummary("cls-prod");
+    mod.enrichSessionSummary("cls-prod");
+
+    const summary = mod.getSessionSummary("cls-prod");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("productive");
+    expect(summary!.isDeadEnd).toBe(0);
+    expect(summary!.deadEndReason).toBeNull();
+  });
+
+  it("classifies research session (read-heavy, no commits)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-research", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 5; i++) {
+      insertTurn(db, { sessionId: "cls-research", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    }
+    // Majority read-only tools
+    for (let i = 0; i < 5; i++) {
+      insertToolCall(db, { sessionId: "cls-research", turnIndex: i, toolName: "Read" });
+      insertToolCall(db, { sessionId: "cls-research", turnIndex: i, toolName: "Grep" });
+    }
+    insertToolCall(db, { sessionId: "cls-research", turnIndex: 2, toolName: "Bash" });
+
+    mod.materializeSessionSummary("cls-research");
+    mod.enrichSessionSummary("cls-research");
+
+    const summary = mod.getSessionSummary("cls-research");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("research");
+    expect(summary!.isDeadEnd).toBe(0);
+  });
+
+  it("classifies dead-end spinning session", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-spin", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    // 5 consecutive error turns triggers spinning detection
+    for (let i = 0; i < 5; i++) {
+      insertTurn(db, { sessionId: "cls-spin", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 1, hasCompaction: 0, hasError: 1 });
+      insertError(db, { sessionId: "cls-spin", turnIndex: i, toolName: "Bash", message: "command failed" });
+      insertToolCall(db, { sessionId: "cls-spin", turnIndex: i, toolName: "Bash" });
+    }
+
+    mod.materializeSessionSummary("cls-spin");
+    mod.enrichSessionSummary("cls-spin");
+
+    const summary = mod.getSessionSummary("cls-spin");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("dead_end:spinning");
+    expect(summary!.isDeadEnd).toBe(1);
+    expect(summary!.deadEndReason).toBe("dead_end:spinning");
+  });
+
+  it("classifies dead-end abandoned session (10+ turns, no commits, not research)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-abandon", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 12; i++) {
+      insertTurn(db, { sessionId: "cls-abandon", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+      // Mix of write and read tools — not majority read-only
+      insertToolCall(db, { sessionId: "cls-abandon", turnIndex: i, toolName: i % 2 === 0 ? "Edit" : "Bash" });
+      insertToolCall(db, { sessionId: "cls-abandon", turnIndex: i, toolName: "Read" });
+    }
+
+    mod.materializeSessionSummary("cls-abandon");
+    mod.enrichSessionSummary("cls-abandon");
+
+    const summary = mod.getSessionSummary("cls-abandon");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("dead_end:abandoned");
+    expect(summary!.isDeadEnd).toBe(1);
+    expect(summary!.deadEndReason).toBe("dead_end:abandoned");
+  });
+
+  it("classifies abandoned_start session (< 3 turns, no commits)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-short", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T10:05:00.000Z" });
+    insertTurn(db, { sessionId: "cls-short", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertTurn(db, { sessionId: "cls-short", turnIndex: 1, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    mod.materializeSessionSummary("cls-short");
+    mod.enrichSessionSummary("cls-short");
+
+    const summary = mod.getSessionSummary("cls-short");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("abandoned_start");
+    expect(summary!.isDeadEnd).toBe(0);
+  });
+
+  it("classifies push-only session as productive (0 commits, is_git_push = 1)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-push", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 4; i++) {
+      insertTurn(db, { sessionId: "cls-push", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+      insertToolCall(db, { sessionId: "cls-push", turnIndex: i, toolName: "Bash" });
+    }
+    insertCommand(db, { sessionId: "cls-push", turnIndex: 2, commandText: "git push origin main", isGitPush: 1 });
+
+    mod.materializeSessionSummary("cls-push");
+    mod.enrichSessionSummary("cls-push");
+
+    const summary = mod.getSessionSummary("cls-push");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("productive");
+    expect(summary!.isDeadEnd).toBe(0);
+  });
+
+  it("classifies productive via turns.has_push = 1 (no commits, no commands)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "cls-tpush", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 4; i++) {
+      insertTurn(db, { sessionId: "cls-tpush", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0, hasPush: i === 2 ? 1 : 0 });
+      insertToolCall(db, { sessionId: "cls-tpush", turnIndex: i, toolName: "Bash" });
+    }
+    // No commits, no commands with is_git_push — only turns.has_push
+
+    mod.materializeSessionSummary("cls-tpush");
+    mod.enrichSessionSummary("cls-tpush");
+
+    const summary = mod.getSessionSummary("cls-tpush");
+    expect(summary).not.toBeNull();
+    expect(summary!.outcome).toBe("productive");
+    expect(summary!.isDeadEnd).toBe(0);
+  });
+
+  it("backfills previously-unclassified summaries via classifyPendingSummaries", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    // Session 1: productive (has commits)
+    insertSession(db, { id: "bf-1", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z", status: "ended" });
+    for (let i = 0; i < 3; i++) {
+      insertTurn(db, { sessionId: "bf-1", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    }
+    insertToolCall(db, { sessionId: "bf-1", turnIndex: 0, toolName: "Edit" });
+    insertCommit(db, "bf-1", 1);
+
+    // Session 2: abandoned start (2 turns, no commits)
+    insertSession(db, { id: "bf-2", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T12:00:00.000Z", endedAt: "2026-04-10T12:05:00.000Z", status: "ended" });
+    insertTurn(db, { sessionId: "bf-2", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertTurn(db, { sessionId: "bf-2", turnIndex: 1, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    // Materialize + enrich both
+    mod.materializeSessionSummary("bf-1");
+    mod.materializeSessionSummary("bf-2");
+    mod.enrichSessionSummary("bf-1");
+    mod.enrichSessionSummary("bf-2");
+
+    // Verify they got classified via enrichment
+    expect(mod.getSessionSummary("bf-1")!.outcome).toBe("productive");
+    expect(mod.getSessionSummary("bf-2")!.outcome).toBe("abandoned_start");
+
+    // Manually reset to 'unknown' to simulate pre-existing unclassified rows
+    db.prepare(`UPDATE session_summaries SET outcome = 'unknown', is_dead_end = 0, dead_end_reason = NULL WHERE session_id IN ('bf-1', 'bf-2')`).run();
+    expect(mod.getSessionSummary("bf-1")!.outcome).toBe("unknown");
+    expect(mod.getSessionSummary("bf-2")!.outcome).toBe("unknown");
+
+    // Backfill
+    const count = mod.classifyPendingSummaries();
+    expect(count).toBe(2);
+
+    // Verify reclassified
+    expect(mod.getSessionSummary("bf-1")!.outcome).toBe("productive");
+    expect(mod.getSessionSummary("bf-2")!.outcome).toBe("abandoned_start");
+
+    // Running again should find 0 pending
+    const count2 = mod.classifyPendingSummaries();
+    expect(count2).toBe(0);
+  });
+});
+
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
 function createFixtureRoot(): string {
@@ -540,6 +737,7 @@ async function setup(): Promise<LoadedModules> {
     listSessionModelCosts: summaries.listSessionModelCosts,
     enrichSessionSummary: summaries.enrichSessionSummary,
     enrichPendingSummaries: summaries.enrichPendingSummaries,
+    classifyPendingSummaries: summaries.classifyPendingSummaries,
   };
 }
 
@@ -589,6 +787,7 @@ function insertTurn(
     hasError?: number;
     hasPlanStart?: number;
     hasPlanEnd?: number;
+    hasPush?: number;
   },
 ): void {
   db.prepare(`
@@ -597,9 +796,9 @@ function insertTurn(
       category, summary, user_instruction, assistant_preview, sections_json,
       input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
       cost_usd, model_family, error_count, has_compaction, source_type,
-      has_error, has_plan_start, has_plan_end
+      has_error, has_plan_start, has_plan_end, has_push
     )
-    VALUES (?, ?, ?, 0, 10, 'conversation', '', '', '', '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, 0, 10, 'conversation', '', '', '', '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     opts.sessionId,
     opts.turnIndex,
@@ -616,6 +815,7 @@ function insertTurn(
     opts.hasError ?? (opts.errorCount > 0 ? 1 : 0),
     opts.hasPlanStart ?? 0,
     opts.hasPlanEnd ?? 0,
+    opts.hasPush ?? 0,
   );
 }
 
