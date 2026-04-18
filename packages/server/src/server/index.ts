@@ -20,7 +20,7 @@ import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
 import { reconcileOnStartup, reconcileSessionLifecycles } from "../storage/reconciliation.js";
-import { materializePendingSummaries } from "../storage/session-summaries.js";
+import { materializePendingSummaries, enrichPendingSummaries } from "../storage/session-summaries.js";
 import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
 import type { DashboardState } from "../types/index.js";
 
@@ -780,6 +780,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       const sync = await syncAllSessionsToStorage("rebuilding");
       await reconcileOnStartup();
       materializePendingSummaries();
+      enrichPendingSummaries();
       return c.json({
         ok: true,
         storage: getStorageInfo(),
@@ -821,6 +822,7 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
   await syncAllSessionsToStorage();
   await reconcileOnStartup();
   materializePendingSummaries();
+  enrichPendingSummaries();
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

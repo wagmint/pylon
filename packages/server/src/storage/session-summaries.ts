@@ -1,4 +1,6 @@
 import { getDb, withTransaction } from "./db.js";
+import { detectSpinningFromStoredEvidence } from "../core/risk.js";
+import { loadOperatorConfig, getSelfName, operatorId } from "../core/config.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -326,6 +328,212 @@ export function materializePendingSummaries(): number {
   return count;
 }
 
+// ─── Enrichment ─────────────────────────────────────────────────────────────
+
+export function enrichSessionSummary(sessionId: string): void {
+  const db = getDb();
+
+  // 1. tools_used — tool_name → count
+  const toolRows = db.prepare(`
+    SELECT tool_name as toolName, COUNT(*) as count
+    FROM tool_calls WHERE session_id = ?
+    GROUP BY tool_name
+  `).all(sessionId) as Array<{ toolName: string; count: number }>;
+
+  const toolsUsed: Record<string, number> = {};
+  for (const row of toolRows) {
+    toolsUsed[row.toolName] = row.count;
+  }
+
+  // 2. files_changed — distinct file paths with write/edit actions
+  const fileRows = db.prepare(`
+    SELECT DISTINCT file_path as filePath
+    FROM file_touches
+    WHERE session_id = ? AND action IN ('write', 'edit')
+  `).all(sessionId) as Array<{ filePath: string }>;
+
+  const filesChanged = fileRows.map(r => r.filePath).filter(Boolean);
+
+  // 3. plans_created / plans_completed from plan_items
+  //    plans_created: count of plan_markdown rows (actual plan drafting events)
+  //    plans_completed: count of plans where ALL associated tasks are completed.
+  //    Tasks belong to a plan if created between that plan's turn_index and the
+  //    next plan's turn_index. A plan with 0 tasks is not counted as completed.
+  //    NOTE: this grouping is heuristic — plan_items has no explicit plan/group id,
+  //    so we associate task_create rows to the nearest preceding plan_markdown by
+  //    turn_index. If a future schema adds a plan_group_id, prefer that instead.
+  const plansCreatedRow = db.prepare(`
+    SELECT COUNT(*) as count FROM plan_items
+    WHERE session_id = ? AND source = 'plan_markdown'
+  `).get(sessionId) as { count: number };
+  const plansCreated = plansCreatedRow.count;
+
+  let plansCompleted = 0;
+  if (plansCreated > 0) {
+    const planTurnRows = db.prepare(`
+      SELECT turn_index as turnIndex FROM plan_items
+      WHERE session_id = ? AND source = 'plan_markdown'
+      ORDER BY turn_index
+    `).all(sessionId) as Array<{ turnIndex: number }>;
+
+    const taskCreateRows = db.prepare(`
+      SELECT task_id as taskId, turn_index as turnIndex FROM plan_items
+      WHERE session_id = ? AND source = 'task_create' AND task_id IS NOT NULL
+    `).all(sessionId) as Array<{ taskId: string; turnIndex: number }>;
+
+    const completedTaskIds = new Set(
+      (db.prepare(`
+        SELECT DISTINCT task_id as taskId FROM plan_items
+        WHERE session_id = ? AND source = 'task_update'
+          AND status IN ('completed', 'done') AND task_id IS NOT NULL
+      `).all(sessionId) as Array<{ taskId: string }>).map(r => r.taskId),
+    );
+
+    for (let i = 0; i < planTurnRows.length; i++) {
+      const planTurn = planTurnRows[i].turnIndex;
+      const nextPlanTurn = i + 1 < planTurnRows.length
+        ? planTurnRows[i + 1].turnIndex
+        : Infinity;
+
+      const planTasks = taskCreateRows.filter(
+        tc => tc.turnIndex >= planTurn && tc.turnIndex < nextPlanTurn,
+      );
+
+      if (planTasks.length > 0 && planTasks.every(tc => completedTaskIds.has(tc.taskId))) {
+        plansCompleted++;
+      }
+    }
+  }
+
+  // 4. risk_peak / had_spinning / spinning_types
+  const turnRows = db.prepare(`
+    SELECT has_error as hasError, turn_index as turnIndex
+    FROM turns WHERE session_id = ?
+  `).all(sessionId) as Array<{ hasError: number; turnIndex: number }>;
+
+  const fileTouchRows = db.prepare(`
+    SELECT file_path as filePath, action, turn_index as turnIndex
+    FROM file_touches WHERE session_id = ?
+  `).all(sessionId) as Array<{ filePath: string; action: string; turnIndex: number }>;
+
+  const commandRows = db.prepare(`
+    SELECT command_text as commandText, turn_index as turnIndex
+    FROM commands WHERE session_id = ?
+  `).all(sessionId) as Array<{ commandText: string; turnIndex: number }>;
+
+  const errorRows = db.prepare(`
+    SELECT tool_name as toolName, message, turn_index as turnIndex
+    FROM errors WHERE session_id = ?
+  `).all(sessionId) as Array<{ toolName: string; message: string; turnIndex: number }>;
+
+  const riskResult = detectSpinningFromStoredEvidence({
+    turns: turnRows,
+    fileTouches: fileTouchRows,
+    commands: commandRows,
+    errors: errorRows,
+  });
+
+  // 5. operator_id / operator_name
+  let resolvedOperatorId: string | null = null;
+  let resolvedOperatorName: string | null = null;
+
+  try {
+    const config = loadOperatorConfig();
+    const selfName = getSelfName(config);
+
+    // Get transcript source path for this session
+    const tsRow = db.prepare(`
+      SELECT t.file_path as filePath
+      FROM transcript_sources t
+      JOIN sessions s ON s.transcript_source_id = t.id
+      WHERE s.id = ?
+    `).get(sessionId) as { filePath: string } | undefined;
+
+    const filePath = tsRow?.filePath ?? "";
+    let matched = false;
+
+    for (const op of config.operators) {
+      if (op.claude && isUnderPath(filePath, op.claude)) {
+        resolvedOperatorId = operatorId(op.name);
+        resolvedOperatorName = op.name;
+        matched = true;
+        break;
+      }
+      if (op.codex && isUnderPath(filePath, op.codex)) {
+        resolvedOperatorId = operatorId(op.name);
+        resolvedOperatorName = op.name;
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      resolvedOperatorId = "self";
+      resolvedOperatorName = selfName;
+    }
+  } catch {
+    resolvedOperatorId = "self";
+    resolvedOperatorName = "self";
+  }
+
+  // 6. workstream_id
+  const wsRow = db.prepare(`
+    SELECT workstream_id as workstreamId
+    FROM workstream_sessions
+    WHERE session_id = ?
+    ORDER BY confidence DESC
+    LIMIT 1
+  `).get(sessionId) as { workstreamId: string } | undefined;
+
+  const workstreamId = wsRow?.workstreamId ?? null;
+
+  // 7. UPDATE the existing row
+  db.prepare(`
+    UPDATE session_summaries SET
+      tools_used = ?,
+      files_changed = ?,
+      plans_created = ?,
+      plans_completed = ?,
+      risk_peak = ?,
+      had_spinning = ?,
+      spinning_types = ?,
+      operator_id = ?,
+      operator_name = ?,
+      workstream_id = ?
+    WHERE session_id = ?
+  `).run(
+    JSON.stringify(toolsUsed),
+    JSON.stringify(filesChanged),
+    plansCreated,
+    plansCompleted,
+    riskResult.riskPeak,
+    riskResult.hadSpinning ? 1 : 0,
+    riskResult.spinningTypes.length > 0 ? JSON.stringify(riskResult.spinningTypes) : null,
+    resolvedOperatorId,
+    resolvedOperatorName,
+    workstreamId,
+    sessionId,
+  );
+}
+
+export function enrichPendingSummaries(): number {
+  const db = getDb();
+
+  const pending = db.prepare(`
+    SELECT session_id as sessionId
+    FROM session_summaries
+    WHERE tools_used IS NULL
+  `).all() as Array<{ sessionId: string }>;
+
+  let count = 0;
+  for (const row of pending) {
+    enrichSessionSummary(row.sessionId);
+    count++;
+  }
+
+  return count;
+}
+
 // ─── Queries ────────────────────────────────────────────────────────────────
 
 export function getSessionSummary(sessionId: string): SessionSummaryRow | null {
@@ -387,4 +595,12 @@ export function listSessionModelCosts(sessionId: string): SessionModelCostRow[] 
     WHERE session_id = ?
     ORDER BY cost_usd DESC
   `).all(sessionId) as SessionModelCostRow[];
+}
+
+// ─── Internal Helpers ───────────────────────────────────────────────────────
+
+/** Path-aware containment check: does filePath reside under dirPath? */
+function isUnderPath(filePath: string, dirPath: string): boolean {
+  const dir = dirPath.endsWith("/") ? dirPath : dirPath + "/";
+  return filePath === dirPath || filePath.startsWith(dir);
 }
