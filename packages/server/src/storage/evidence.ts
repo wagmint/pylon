@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 import { buildParsedSession } from "../core/nodes.js";
+import { computeStoredTurnCost, normalizeModelFamily, PRICING_VERSION } from "../core/pricing.js";
 import { buildCodexParsedSession } from "../providers/codex/nodes.js";
 import { parseCodexSessionFile, type CodexEvent } from "../providers/codex/parser.js";
 import { parseSessionFile, parseSystemLines, getMessageText, getToolCalls, getToolResults, hasCompaction, getThinkingText } from "../parser/jsonl.js";
@@ -504,8 +505,9 @@ function insertParsedTurns(ref: ProviderSessionRef, parsed: ParsedSession): void
       commit_message, commit_sha, has_error, error_count, has_compaction, compaction_text,
       has_plan_start, has_plan_end, plan_markdown, plan_rejected, model,
       input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-      context_window_tokens, duration_ms, sections_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      context_window_tokens, duration_ms, sections_json,
+      cost_usd, model_family, pricing_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const turn of parsed.turns) {
@@ -541,6 +543,9 @@ function insertParsedTurns(ref: ProviderSessionRef, parsed: ParsedSession): void
       turn.contextWindowTokens,
       turn.durationMs,
       JSON.stringify(turn.sections),
+      computeStoredTurnCost(turn.model, turn.tokenUsage),
+      normalizeModelFamily(turn.model),
+      PRICING_VERSION,
     );
   }
 }

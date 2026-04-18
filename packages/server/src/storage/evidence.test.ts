@@ -20,6 +20,7 @@ interface LoadedModules {
   closeStorage: () => void;
   initStorage: () => Promise<unknown>;
   syncClaudeSessionsToStorage: () => { projectCount: number; sessionCount: number };
+  getDb: () => unknown;
   listStoredTurns: (sessionId?: string) => StoredTurnRow[];
   listStoredEvents: (sessionId?: string) => StoredEventRow[];
   listStoredMessages: (sessionId?: string) => StoredMessageRow[];
@@ -152,6 +153,7 @@ async function loadModules(root: string): Promise<LoadedModules> {
     closeStorage: db.closeStorage,
     initStorage: db.initStorage,
     syncClaudeSessionsToStorage: sync.syncClaudeSessionsToStorage,
+    getDb: db.getDb,
     listStoredTurns: evidence.listStoredTurns,
     listStoredEvents: evidence.listStoredEvents,
     listStoredMessages: evidence.listStoredMessages,
@@ -225,6 +227,68 @@ function createEvidenceTranscript(root: string, sessionId: string): string {
         { type: "tool_result", tool_use_id: "t6", content: "Error: test failed", is_error: true },
         { type: "tool_result", tool_use_id: "t7", content: "edit ok" },
       ],
+    }),
+  ];
+
+  writeFileSync(transcriptPath, `${lines.join("\n")}\n`, "utf-8");
+  return transcriptPath;
+}
+
+describe("per-turn cost facts", () => {
+  it("populates cost_usd and model_family on turns after sync", async () => {
+    const root = createFixtureRoot();
+    createCostAwareTranscript(root, "session-cost");
+    const mod = await loadModules(root);
+
+    await mod.initStorage();
+    mod.syncClaudeSessionsToStorage();
+
+    const db = mod.getDb() as { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] } };
+    const rows = db
+      .prepare(
+        `SELECT cost_usd, model_family, pricing_version FROM turns WHERE session_id = ?`,
+      )
+      .all("session-cost") as Array<{
+      cost_usd: number | null;
+      model_family: string | null;
+      pricing_version: number;
+    }>;
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.cost_usd).toBeGreaterThan(0);
+    // Sonnet 4: 1000 * 3e-6 + 200 * 15e-6 = 0.003 + 0.003 = 0.006
+    expect(row.cost_usd).toBeCloseTo(0.006, 5);
+    expect(row.model_family).toBe("sonnet-4");
+    expect(row.pricing_version).toBe(1);
+  });
+});
+
+function createCostAwareTranscript(root: string, sessionId: string): string {
+  const projectsDir = join(root, ".claude", "projects");
+  const projectPath = "/tmp/demo/project";
+  const encodedProjectPath = projectPath.replace(/[^a-zA-Z0-9-]/g, "-");
+  const projectDir = join(projectsDir, encodedProjectPath);
+  mkdirSync(projectDir, { recursive: true });
+  const transcriptPath = join(projectDir, `${sessionId}.jsonl`);
+
+  const lines = [
+    JSON.stringify({
+      timestamp: "2026-04-05T14:00:00.000Z",
+      role: "user",
+      content: "Hello",
+    }),
+    JSON.stringify({
+      timestamp: "2026-04-05T14:00:05.000Z",
+      role: "assistant",
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "Hi there!" }],
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 200,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
     }),
   ];
 
