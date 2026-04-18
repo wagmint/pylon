@@ -823,6 +823,13 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_events_source_type ON events(source_type)`,
     ],
   },
+  {
+    id: 11,
+    name: "session_end_reason",
+    up: [
+      `ALTER TABLE sessions ADD COLUMN end_reason TEXT`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
