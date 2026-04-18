@@ -1,6 +1,7 @@
 import { getDb, withTransaction } from "./db.js";
 import { detectSpinningFromStoredEvidence } from "../core/risk.js";
 import { loadOperatorConfig, getSelfName, operatorId } from "../core/config.js";
+import { classifySessionOutcome } from "../core/classification.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -433,7 +434,26 @@ export function enrichSessionSummary(sessionId: string): void {
     errors: errorRows,
   });
 
-  // 5. operator_id / operator_name
+  // 5. Classification — requires summary row for totalTurns/totalCommits/errorRate
+  const summary = getSessionSummary(sessionId);
+  const hasPushRow = db.prepare(`
+    SELECT EXISTS(
+      SELECT 1 FROM turns WHERE session_id = ? AND has_push = 1
+      UNION ALL
+      SELECT 1 FROM commands WHERE session_id = ? AND is_git_push = 1
+    ) as hasPush
+  `).get(sessionId, sessionId) as { hasPush: number };
+
+  const classification = classifySessionOutcome({
+    totalTurns: summary?.totalTurns ?? 0,
+    totalCommits: summary?.totalCommits ?? 0,
+    hadSpinning: riskResult.hadSpinning,
+    errorRate: summary?.errorRate ?? 0,
+    hasPush: hasPushRow.hasPush === 1,
+    toolsUsed,
+  });
+
+  // 6. operator_id / operator_name
   let resolvedOperatorId: string | null = null;
   let resolvedOperatorName: string | null = null;
 
@@ -476,7 +496,7 @@ export function enrichSessionSummary(sessionId: string): void {
     resolvedOperatorName = "self";
   }
 
-  // 6. workstream_id
+  // 7. workstream_id
   const wsRow = db.prepare(`
     SELECT workstream_id as workstreamId
     FROM workstream_sessions
@@ -487,7 +507,7 @@ export function enrichSessionSummary(sessionId: string): void {
 
   const workstreamId = wsRow?.workstreamId ?? null;
 
-  // 7. UPDATE the existing row
+  // 8. UPDATE the existing row
   db.prepare(`
     UPDATE session_summaries SET
       tools_used = ?,
@@ -497,6 +517,9 @@ export function enrichSessionSummary(sessionId: string): void {
       risk_peak = ?,
       had_spinning = ?,
       spinning_types = ?,
+      outcome = ?,
+      is_dead_end = ?,
+      dead_end_reason = ?,
       operator_id = ?,
       operator_name = ?,
       workstream_id = ?
@@ -509,6 +532,9 @@ export function enrichSessionSummary(sessionId: string): void {
     riskResult.riskPeak,
     riskResult.hadSpinning ? 1 : 0,
     riskResult.spinningTypes.length > 0 ? JSON.stringify(riskResult.spinningTypes) : null,
+    classification.outcome,
+    classification.isDeadEnd ? 1 : 0,
+    classification.deadEndReason,
     resolvedOperatorId,
     resolvedOperatorName,
     workstreamId,
@@ -528,6 +554,59 @@ export function enrichPendingSummaries(): number {
   let count = 0;
   for (const row of pending) {
     enrichSessionSummary(row.sessionId);
+    count++;
+  }
+
+  return count;
+}
+
+export function classifyPendingSummaries(): number {
+  const db = getDb();
+
+  const pending = db.prepare(`
+    SELECT session_id as sessionId
+    FROM session_summaries
+    WHERE outcome = 'unknown' AND is_partial = 0
+  `).all() as Array<{ sessionId: string }>;
+
+  let count = 0;
+  for (const row of pending) {
+    const summary = getSessionSummary(row.sessionId);
+    if (!summary) continue;
+
+    const hasPushRow = db.prepare(`
+      SELECT EXISTS(
+        SELECT 1 FROM turns WHERE session_id = ? AND has_push = 1
+        UNION ALL
+        SELECT 1 FROM commands WHERE session_id = ? AND is_git_push = 1
+      ) as hasPush
+    `).get(row.sessionId, row.sessionId) as { hasPush: number };
+
+    const toolsUsed: Record<string, number> = summary.toolsUsed
+      ? JSON.parse(summary.toolsUsed)
+      : {};
+
+    const classification = classifySessionOutcome({
+      totalTurns: summary.totalTurns,
+      totalCommits: summary.totalCommits,
+      hadSpinning: summary.hadSpinning === 1,
+      errorRate: summary.errorRate,
+      hasPush: hasPushRow.hasPush === 1,
+      toolsUsed,
+    });
+
+    db.prepare(`
+      UPDATE session_summaries SET
+        outcome = ?,
+        is_dead_end = ?,
+        dead_end_reason = ?
+      WHERE session_id = ?
+    `).run(
+      classification.outcome,
+      classification.isDeadEnd ? 1 : 0,
+      classification.deadEndReason,
+      row.sessionId,
+    );
     count++;
   }
 
