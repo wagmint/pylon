@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectSpinning, computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
+import { detectSpinning, detectSpinningFromStoredEvidence, computeAgentRisk, computeWorkstreamRisk } from "./risk.js";
 import type { TurnNode, TokenUsage, ParsedSession, SessionInfo } from "../types/index.js";
 import type { Agent, AgentRisk } from "../types/index.js";
 
@@ -259,6 +259,166 @@ describe("detectSpinning", () => {
       expect(signals).toHaveLength(1);
       expect(signals[0].level).toBe("critical");
     });
+  });
+});
+
+// ─── detectSpinningFromStoredEvidence ────────────────────────────────────────
+
+describe("detectSpinningFromStoredEvidence", () => {
+  it("returns nominal with no errors", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 5 }, (_, i) => ({ hasError: 0, turnIndex: i })),
+      fileTouches: [],
+      commands: [],
+      errors: [],
+    });
+    expect(result.riskPeak).toBe("nominal");
+    expect(result.hadSpinning).toBe(false);
+    expect(result.spinningTypes).toEqual([]);
+  });
+
+  it("detects error_loop with 3 consecutive error turns (elevated)", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: [
+        { hasError: 0, turnIndex: 0 },
+        { hasError: 1, turnIndex: 1 },
+        { hasError: 1, turnIndex: 2 },
+        { hasError: 1, turnIndex: 3 },
+      ],
+      fileTouches: [],
+      commands: [],
+      errors: [],
+    });
+    expect(result.hadSpinning).toBe(true);
+    expect(result.spinningTypes).toContain("error_loop");
+    expect(result.riskPeak).toBe("elevated");
+  });
+
+  it("detects error_loop with 5 consecutive error turns (critical)", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 5 }, (_, i) => ({ hasError: 1, turnIndex: i })),
+      fileTouches: [],
+      commands: [],
+      errors: [],
+    });
+    expect(result.hadSpinning).toBe(true);
+    expect(result.spinningTypes).toContain("error_loop");
+    expect(result.riskPeak).toBe("critical");
+  });
+
+  it("detects file_churn when same file edited 5+ times", () => {
+    const fileTouches = Array.from({ length: 6 }, (_, i) => ({
+      filePath: "src/app.ts",
+      action: "edit",
+      turnIndex: i,
+    }));
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 6 }, (_, i) => ({ hasError: 0, turnIndex: i })),
+      fileTouches,
+      commands: [],
+      errors: [],
+    });
+    expect(result.hadSpinning).toBe(true);
+    expect(result.spinningTypes).toContain("file_churn");
+  });
+
+  it("ignores read actions for file_churn", () => {
+    const fileTouches = Array.from({ length: 10 }, (_, i) => ({
+      filePath: "src/app.ts",
+      action: "read",
+      turnIndex: i,
+    }));
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 10 }, (_, i) => ({ hasError: 0, turnIndex: i })),
+      fileTouches,
+      commands: [],
+      errors: [],
+    });
+    expect(result.spinningTypes).not.toContain("file_churn");
+  });
+
+  it("detects stuck pattern with 5+ errors and 0 commits", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 5 }, (_, i) => ({ hasError: 1, turnIndex: i })),
+      fileTouches: [],
+      commands: [{ commandText: "npm test", turnIndex: 0 }],
+      errors: Array.from({ length: 5 }, (_, i) => ({ toolName: "Bash", message: "failed", turnIndex: i })),
+    });
+    expect(result.spinningTypes).toContain("stuck");
+  });
+
+  it("does not flag stuck when git commit exists", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 6 }, (_, i) => ({ hasError: i < 5 ? 1 : 0, turnIndex: i })),
+      fileTouches: [],
+      commands: [{ commandText: "git commit -m 'fix'", turnIndex: 5 }],
+      errors: [],
+    });
+    expect(result.spinningTypes).not.toContain("stuck");
+  });
+
+  it("elevates risk from error rate even without spinning", () => {
+    // 3 non-consecutive errors out of 10 turns = 30% > 20% threshold
+    // Errors at indices 0, 3, 6 — no consecutive streak
+    const turns = Array.from({ length: 10 }, (_, i) => ({
+      hasError: (i % 3 === 0 && i < 9) ? 1 : 0,
+      turnIndex: i,
+    }));
+    const result = detectSpinningFromStoredEvidence({
+      turns,
+      fileTouches: [],
+      commands: [],
+      errors: [],
+    });
+    // No spinning but error rate > 20% with enough data
+    expect(result.hadSpinning).toBe(false);
+    expect(result.riskPeak).toBe("elevated");
+  });
+
+  it("tracks peak risk across entire session, not just last 10 turns", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: [
+        // First 5 turns: all errors (critical error_loop)
+        ...Array.from({ length: 5 }, (_, i) => ({ hasError: 1, turnIndex: i })),
+        // Next 15 turns: all clean (recovery)
+        ...Array.from({ length: 15 }, (_, i) => ({ hasError: 0, turnIndex: i + 5 })),
+      ],
+      fileTouches: [],
+      commands: [],
+      errors: [],
+    });
+    // Peak should be critical because of the error streak in turns 0-4
+    expect(result.riskPeak).toBe("critical");
+    expect(result.hadSpinning).toBe(true);
+    expect(result.spinningTypes).toContain("error_loop");
+  });
+
+  it("detects repeated_tool when same command appears 4+ times in 5-turn window", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 5 }, (_, i) => ({ hasError: 0, turnIndex: i })),
+      fileTouches: [],
+      commands: Array.from({ length: 4 }, (_, i) => ({
+        commandText: "npm test",
+        turnIndex: i,
+      })),
+      errors: [],
+    });
+    expect(result.hadSpinning).toBe(true);
+    expect(result.spinningTypes).toContain("repeated_tool");
+    expect(result.riskPeak).toBe("elevated");
+  });
+
+  it("does not flag repeated_tool for < 4 identical commands", () => {
+    const result = detectSpinningFromStoredEvidence({
+      turns: Array.from({ length: 5 }, (_, i) => ({ hasError: 0, turnIndex: i })),
+      fileTouches: [],
+      commands: Array.from({ length: 3 }, (_, i) => ({
+        commandText: "npm test",
+        turnIndex: i,
+      })),
+      errors: [],
+    });
+    expect(result.spinningTypes).not.toContain("repeated_tool");
   });
 });
 

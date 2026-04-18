@@ -12,6 +12,8 @@ interface LoadedModules {
   materializePendingSummaries: () => number;
   getSessionSummary: (sessionId: string) => import("./session-summaries.js").SessionSummaryRow | null;
   listSessionModelCosts: (sessionId: string) => import("./session-summaries.js").SessionModelCostRow[];
+  enrichSessionSummary: (sessionId: string) => void;
+  enrichPendingSummaries: () => number;
 }
 
 const tempRoots: string[] = [];
@@ -277,6 +279,231 @@ describe("session summaries materializer", () => {
   });
 });
 
+// ─── Enrichment Tests ───────────────────────────────────────────────────────
+
+describe("session summary enrichment", () => {
+  it("populates tools_used from tool_calls", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-tools", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-tools", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertTurn(db, { sessionId: "enrich-tools", turnIndex: 1, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    insertToolCall(db, { sessionId: "enrich-tools", turnIndex: 0, toolName: "Edit" });
+    insertToolCall(db, { sessionId: "enrich-tools", turnIndex: 0, toolName: "Edit" });
+    insertToolCall(db, { sessionId: "enrich-tools", turnIndex: 1, toolName: "Bash" });
+    insertToolCall(db, { sessionId: "enrich-tools", turnIndex: 1, toolName: "Read" });
+
+    mod.materializeSessionSummary("enrich-tools");
+    mod.enrichSessionSummary("enrich-tools");
+
+    const summary = mod.getSessionSummary("enrich-tools");
+    expect(summary).not.toBeNull();
+    const toolsUsed = JSON.parse(summary!.toolsUsed!);
+    expect(toolsUsed).toEqual({ Edit: 2, Bash: 1, Read: 1 });
+  });
+
+  it("populates files_changed from file_touches (write/edit only)", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-files", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-files", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    insertFileTouch(db, { sessionId: "enrich-files", turnIndex: 0, filePath: "src/app.ts", action: "write" });
+    insertFileTouch(db, { sessionId: "enrich-files", turnIndex: 0, filePath: "src/app.ts", action: "edit" });
+    insertFileTouch(db, { sessionId: "enrich-files", turnIndex: 0, filePath: "src/utils.ts", action: "edit" });
+    insertFileTouch(db, { sessionId: "enrich-files", turnIndex: 0, filePath: "src/readme.md", action: "read" }); // should be excluded
+
+    mod.materializeSessionSummary("enrich-files");
+    mod.enrichSessionSummary("enrich-files");
+
+    const summary = mod.getSessionSummary("enrich-files");
+    expect(summary).not.toBeNull();
+    const filesChanged = JSON.parse(summary!.filesChanged!);
+    expect(filesChanged).toHaveLength(2);
+    expect(filesChanged).toContain("src/app.ts");
+    expect(filesChanged).toContain("src/utils.ts");
+    expect(filesChanged).not.toContain("src/readme.md");
+  });
+
+  it("populates plans_created and plans_completed from plan_items", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-plans", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    for (let i = 0; i < 6; i++) {
+      insertTurn(db, { sessionId: "enrich-plans", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    }
+
+    // Turn 0: plan 1 drafted
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 0, source: "plan_markdown", subject: "Implement auth feature", status: "planned" });
+    // Turn 1: 2 tasks created for plan 1
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 1, source: "task_create", subject: "Add login endpoint", status: "created", taskId: "task-1" });
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 1, source: "task_create", subject: "Add signup endpoint", status: "created", taskId: "task-2" });
+
+    // Turn 2: plan 2 drafted
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 2, source: "plan_markdown", subject: "Refactor database layer", status: "planned" });
+    // Turn 3: 1 task created for plan 2
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 3, source: "task_create", subject: "Migrate schema", status: "created", taskId: "task-3" });
+
+    // Turn 4: both plan-1 tasks completed
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 4, source: "task_update", subject: "Task task-1", status: "completed", taskId: "task-1" });
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 4, source: "task_update", subject: "Task task-2", status: "completed", taskId: "task-2" });
+
+    // Turn 5: plan-2 task still in progress (not completed)
+    insertPlanItem(db, { sessionId: "enrich-plans", turnIndex: 5, source: "task_update", subject: "Task task-3", status: "in_progress", taskId: "task-3" });
+
+    mod.materializeSessionSummary("enrich-plans");
+    mod.enrichSessionSummary("enrich-plans");
+
+    const summary = mod.getSessionSummary("enrich-plans");
+    expect(summary).not.toBeNull();
+    // 2 plan_markdown rows = 2 plans drafted
+    expect(summary!.plansCreated).toBe(2);
+    // Plan 1: task-1 + task-2 both completed → 1 completed plan
+    // Plan 2: task-3 still in_progress → not completed
+    expect(summary!.plansCompleted).toBe(1);
+  });
+
+  it("detects spinning and sets risk_peak", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-risk", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    // 5 consecutive error turns → error_loop critical + stuck critical
+    for (let i = 0; i < 5; i++) {
+      insertTurn(db, { sessionId: "enrich-risk", turnIndex: i, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 1, hasCompaction: 0, hasError: 1 });
+      insertError(db, { sessionId: "enrich-risk", turnIndex: i, toolName: "Bash", message: "command failed" });
+    }
+
+    mod.materializeSessionSummary("enrich-risk");
+    mod.enrichSessionSummary("enrich-risk");
+
+    const summary = mod.getSessionSummary("enrich-risk");
+    expect(summary).not.toBeNull();
+    expect(summary!.hadSpinning).toBe(1);
+    expect(summary!.riskPeak).toBe("critical");
+    const spinningTypes = JSON.parse(summary!.spinningTypes!);
+    expect(spinningTypes).toContain("error_loop");
+  });
+
+  it("sets operator to self when no operator config exists", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-op", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-op", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    mod.materializeSessionSummary("enrich-op");
+    mod.enrichSessionSummary("enrich-op");
+
+    const summary = mod.getSessionSummary("enrich-op");
+    expect(summary).not.toBeNull();
+    expect(summary!.operatorId).toBe("self");
+    expect(summary!.operatorName).toBeTruthy();
+  });
+
+  it("populates workstream_id from workstream_sessions", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-ws", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-ws", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertWorkstreamSession(db, { workstreamId: "ws-auth-feature", sessionId: "enrich-ws", confidence: 0.95 });
+
+    mod.materializeSessionSummary("enrich-ws");
+    mod.enrichSessionSummary("enrich-ws");
+
+    const summary = mod.getSessionSummary("enrich-ws");
+    expect(summary).not.toBeNull();
+    expect(summary!.workstreamId).toBe("ws-auth-feature");
+  });
+
+  it("handles session with no enrichment data gracefully", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-empty", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-empty", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+
+    mod.materializeSessionSummary("enrich-empty");
+    mod.enrichSessionSummary("enrich-empty");
+
+    const summary = mod.getSessionSummary("enrich-empty");
+    expect(summary).not.toBeNull();
+    expect(JSON.parse(summary!.toolsUsed!)).toEqual({});
+    expect(JSON.parse(summary!.filesChanged!)).toEqual([]);
+    expect(summary!.plansCreated).toBe(0);
+    expect(summary!.plansCompleted).toBe(0);
+    expect(summary!.riskPeak).toBe("nominal");
+    expect(summary!.hadSpinning).toBe(0);
+    expect(summary!.spinningTypes).toBeNull();
+    expect(summary!.workstreamId).toBeNull();
+  });
+
+  it("enriching twice is idempotent", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "enrich-idem", sourceType: "claude", projectPath: "/tmp/p", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z" });
+    insertTurn(db, { sessionId: "enrich-idem", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertToolCall(db, { sessionId: "enrich-idem", turnIndex: 0, toolName: "Edit" });
+    insertFileTouch(db, { sessionId: "enrich-idem", turnIndex: 0, filePath: "src/app.ts", action: "write" });
+
+    mod.materializeSessionSummary("enrich-idem");
+    mod.enrichSessionSummary("enrich-idem");
+
+    const first = mod.getSessionSummary("enrich-idem");
+    mod.enrichSessionSummary("enrich-idem");
+    const second = mod.getSessionSummary("enrich-idem");
+
+    expect(first!.toolsUsed).toBe(second!.toolsUsed);
+    expect(first!.filesChanged).toBe(second!.filesChanged);
+    expect(first!.riskPeak).toBe(second!.riskPeak);
+    expect(first!.operatorId).toBe(second!.operatorId);
+  });
+
+  it("enrichPendingSummaries backfills unenriched summaries", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSession(db, { id: "backfill-1", sourceType: "claude", projectPath: "/tmp/p1", createdAt: "2026-04-10T10:00:00.000Z", endedAt: "2026-04-10T11:00:00.000Z", status: "ended" });
+    insertTurn(db, { sessionId: "backfill-1", turnIndex: 0, inputTokens: 100, outputTokens: 50, cacheRead: 0, cacheCreation: 0, costUsd: 0.001, modelFamily: "sonnet", errorCount: 0, hasCompaction: 0 });
+    insertToolCall(db, { sessionId: "backfill-1", turnIndex: 0, toolName: "Bash" });
+
+    insertSession(db, { id: "backfill-2", sourceType: "claude", projectPath: "/tmp/p2", createdAt: "2026-04-10T12:00:00.000Z", endedAt: "2026-04-10T13:00:00.000Z", status: "ended" });
+    insertTurn(db, { sessionId: "backfill-2", turnIndex: 0, inputTokens: 200, outputTokens: 100, cacheRead: 0, cacheCreation: 0, costUsd: 0.002, modelFamily: "opus", errorCount: 0, hasCompaction: 0 });
+    insertToolCall(db, { sessionId: "backfill-2", turnIndex: 0, toolName: "Read" });
+
+    // Materialize without enriching
+    mod.materializeSessionSummary("backfill-1");
+    mod.materializeSessionSummary("backfill-2");
+
+    // Verify they are unenriched
+    expect(mod.getSessionSummary("backfill-1")!.toolsUsed).toBeNull();
+    expect(mod.getSessionSummary("backfill-2")!.toolsUsed).toBeNull();
+
+    // Backfill
+    const count = mod.enrichPendingSummaries();
+    expect(count).toBe(2);
+
+    // Verify enriched
+    const s1 = mod.getSessionSummary("backfill-1");
+    expect(s1!.toolsUsed).not.toBeNull();
+    expect(JSON.parse(s1!.toolsUsed!)).toEqual({ Bash: 1 });
+
+    const s2 = mod.getSessionSummary("backfill-2");
+    expect(s2!.toolsUsed).not.toBeNull();
+    expect(JSON.parse(s2!.toolsUsed!)).toEqual({ Read: 1 });
+
+    // Running again should find 0 pending
+    const count2 = mod.enrichPendingSummaries();
+    expect(count2).toBe(0);
+  });
+});
+
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
 function createFixtureRoot(): string {
@@ -311,6 +538,8 @@ async function setup(): Promise<LoadedModules> {
     materializePendingSummaries: summaries.materializePendingSummaries,
     getSessionSummary: summaries.getSessionSummary,
     listSessionModelCosts: summaries.listSessionModelCosts,
+    enrichSessionSummary: summaries.enrichSessionSummary,
+    enrichPendingSummaries: summaries.enrichPendingSummaries,
   };
 }
 
@@ -357,6 +586,9 @@ function insertTurn(
     errorCount: number;
     hasCompaction: number;
     sourceType?: string;
+    hasError?: number;
+    hasPlanStart?: number;
+    hasPlanEnd?: number;
   },
 ): void {
   db.prepare(`
@@ -364,9 +596,10 @@ function insertTurn(
       session_id, turn_index, started_at, start_line, end_line,
       category, summary, user_instruction, assistant_preview, sections_json,
       input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-      cost_usd, model_family, error_count, has_compaction, source_type
+      cost_usd, model_family, error_count, has_compaction, source_type,
+      has_error, has_plan_start, has_plan_end
     )
-    VALUES (?, ?, ?, 0, 10, 'conversation', '', '', '', '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, 0, 10, 'conversation', '', '', '', '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     opts.sessionId,
     opts.turnIndex,
@@ -380,6 +613,9 @@ function insertTurn(
     opts.errorCount,
     opts.hasCompaction,
     opts.sourceType ?? "claude",
+    opts.hasError ?? (opts.errorCount > 0 ? 1 : 0),
+    opts.hasPlanStart ?? 0,
+    opts.hasPlanEnd ?? 0,
   );
 }
 
@@ -388,4 +624,76 @@ function insertCommit(db: SqliteDatabase, sessionId: string, turnIndex: number):
     INSERT INTO commits(session_id, turn_index, line_number, commit_message, timestamp)
     VALUES (?, ?, 0, 'test commit', '2026-04-10T10:00:00.000Z')
   `).run(sessionId, turnIndex);
+}
+
+function insertToolCall(
+  db: SqliteDatabase,
+  opts: { sessionId: string; turnIndex: number; toolName: string; inputJson?: string },
+): void {
+  db.prepare(`
+    INSERT INTO tool_calls(session_id, turn_index, line_number, call_id, tool_name, input_json)
+    VALUES (?, ?, 0, ?, ?, ?)
+  `).run(
+    opts.sessionId,
+    opts.turnIndex,
+    crypto.randomUUID(),
+    opts.toolName,
+    opts.inputJson ?? "{}",
+  );
+}
+
+function insertFileTouch(
+  db: SqliteDatabase,
+  opts: { sessionId: string; turnIndex: number; filePath: string; action: string; sourceTool?: string },
+): void {
+  db.prepare(`
+    INSERT INTO file_touches(session_id, turn_index, line_number, file_path, action, source_tool)
+    VALUES (?, ?, 0, ?, ?, ?)
+  `).run(opts.sessionId, opts.turnIndex, opts.filePath, opts.action, opts.sourceTool ?? "Edit");
+}
+
+function insertError(
+  db: SqliteDatabase,
+  opts: { sessionId: string; turnIndex: number; toolName: string; message: string },
+): void {
+  db.prepare(`
+    INSERT INTO errors(session_id, turn_index, line_number, tool_name, message)
+    VALUES (?, ?, 0, ?, ?)
+  `).run(opts.sessionId, opts.turnIndex, opts.toolName, opts.message);
+}
+
+function insertCommand(
+  db: SqliteDatabase,
+  opts: { sessionId: string; turnIndex: number; commandText: string; isGitCommit?: number; isGitPush?: number },
+): void {
+  db.prepare(`
+    INSERT INTO commands(session_id, turn_index, line_number, tool_call_id, command_text, is_git_commit, is_git_push)
+    VALUES (?, ?, 0, ?, ?, ?, ?)
+  `).run(opts.sessionId, opts.turnIndex, crypto.randomUUID(), opts.commandText, opts.isGitCommit ?? 0, opts.isGitPush ?? 0);
+}
+
+function insertPlanItem(
+  db: SqliteDatabase,
+  opts: { sessionId: string; turnIndex: number; source?: string; subject: string; status?: string; taskId?: string },
+): void {
+  db.prepare(`
+    INSERT INTO plan_items(session_id, turn_index, line_number, source, task_id, subject, status)
+    VALUES (?, ?, 0, ?, ?, ?, ?)
+  `).run(opts.sessionId, opts.turnIndex, opts.source ?? "plan_markdown", opts.taskId ?? null, opts.subject, opts.status ?? null);
+}
+
+function insertWorkstreamSession(
+  db: SqliteDatabase,
+  opts: { workstreamId: string; sessionId: string; confidence?: number },
+): void {
+  // Ensure workstream exists
+  db.prepare(`
+    INSERT OR IGNORE INTO workstreams(id, project_path, canonical_key, title, status, confidence, created_at, updated_at)
+    VALUES (?, '/tmp/p', ?, ?, 'active', 1.0, datetime('now'), datetime('now'))
+  `).run(opts.workstreamId, opts.workstreamId, opts.workstreamId);
+
+  db.prepare(`
+    INSERT INTO workstream_sessions(workstream_id, session_id, relationship_type, confidence, derived_at)
+    VALUES (?, ?, 'branch', ?, datetime('now'))
+  `).run(opts.workstreamId, opts.sessionId, opts.confidence ?? 0.9);
 }

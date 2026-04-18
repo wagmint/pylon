@@ -235,6 +235,125 @@ export function detectSpinning(turns: TurnNode[]): SpinningSignal[] {
   return signals;
 }
 
+/**
+ * Detect spinning from stored DB evidence (turns, file_touches, commands, errors).
+ * Scans ALL sliding windows to find the peak risk ever reached during the session,
+ * not just the final state.
+ */
+export function detectSpinningFromStoredEvidence(params: {
+  turns: Array<{ hasError: number; turnIndex: number }>;
+  fileTouches: Array<{ filePath: string; action: string; turnIndex: number }>;
+  commands: Array<{ commandText: string; turnIndex: number }>;
+  errors: Array<{ toolName: string; message: string; turnIndex: number }>;
+}): { riskPeak: "nominal" | "elevated" | "critical"; hadSpinning: boolean; spinningTypes: string[] } {
+  const spinningTypes = new Set<string>();
+  let peakOrd = 0; // 0=nominal, 1=elevated, 2=critical
+
+  const sorted = [...params.turns].sort((a, b) => a.turnIndex - b.turnIndex);
+
+  // ── Pattern 1: error_loop — max consecutive error streak across ALL turns ──
+  let maxConsecutive = 0;
+  let consecutive = 0;
+  for (const t of sorted) {
+    if (t.hasError) {
+      consecutive++;
+      maxConsecutive = Math.max(maxConsecutive, consecutive);
+    } else {
+      consecutive = 0;
+    }
+  }
+  if (maxConsecutive >= 3) {
+    spinningTypes.add("error_loop");
+    peakOrd = Math.max(peakOrd, maxConsecutive >= 5 ? 2 : 1);
+  }
+
+  // ── Pre-index evidence by turnIndex ──
+  const writeTouchesByTurn = new Map<number, string[]>();
+  for (const ft of params.fileTouches) {
+    if (ft.action !== "write" && ft.action !== "edit") continue;
+    const arr = writeTouchesByTurn.get(ft.turnIndex) ?? [];
+    arr.push(ft.filePath);
+    writeTouchesByTurn.set(ft.turnIndex, arr);
+  }
+
+  const commitTurnSet = new Set<number>();
+  const commandsByTurn = new Map<number, string[]>();
+  for (const c of params.commands) {
+    if (/\bgit\s+commit\b/.test(c.commandText)) {
+      commitTurnSet.add(c.turnIndex);
+    }
+    const normalized = c.commandText.replace(/\s+/g, " ").trim().slice(0, 80);
+    const arr = commandsByTurn.get(c.turnIndex) ?? [];
+    arr.push(normalized);
+    commandsByTurn.set(c.turnIndex, arr);
+  }
+
+  // ── Sliding window patterns ──
+  for (let i = 0; i < sorted.length; i++) {
+    // 10-turn window for file_churn and stuck
+    const w10 = sorted.slice(i, Math.min(i + 10, sorted.length));
+
+    // Pattern 2: file_churn — same file edited 5+ times in any 10-turn window
+    const fileCounts = new Map<string, number>();
+    for (const t of w10) {
+      for (const f of (writeTouchesByTurn.get(t.turnIndex) ?? [])) {
+        fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
+      }
+    }
+    for (const [, count] of fileCounts) {
+      if (count >= 5) {
+        spinningTypes.add("file_churn");
+        peakOrd = Math.max(peakOrd, count >= 8 ? 2 : 1);
+      }
+    }
+
+    // Pattern 3: stuck — 5+ error turns AND 0 commits in any 10-turn window
+    const windowErrors = w10.filter(t => t.hasError).length;
+    const windowHasCommit = w10.some(t => commitTurnSet.has(t.turnIndex));
+    if (windowErrors >= 5 && !windowHasCommit) {
+      spinningTypes.add("stuck");
+      peakOrd = Math.max(peakOrd, 2);
+    }
+
+    // Pattern 4: repeated_tool — same command 4+ times in any 5-turn window
+    if (i + 5 <= sorted.length) {
+      const w5 = sorted.slice(i, i + 5);
+      const cmdCounts = new Map<string, number>();
+      for (const t of w5) {
+        for (const cmd of (commandsByTurn.get(t.turnIndex) ?? [])) {
+          cmdCounts.set(cmd, (cmdCounts.get(cmd) ?? 0) + 1);
+        }
+      }
+      for (const [, count] of cmdCounts) {
+        if (count >= 4) {
+          spinningTypes.add("repeated_tool");
+          peakOrd = Math.max(peakOrd, 1);
+        }
+      }
+    }
+  }
+
+  // ── Error rate contribution to risk peak ──
+  const totalTurns = params.turns.length;
+  const totalErrors = params.turns.filter(t => t.hasError).length;
+  const errorRate = totalTurns > 0 ? totalErrors / totalTurns : 0;
+  const hasEnoughData = totalTurns >= 6;
+
+  if (hasEnoughData && errorRate > 0.35) {
+    peakOrd = Math.max(peakOrd, 2);
+  } else if (hasEnoughData && errorRate > 0.20) {
+    peakOrd = Math.max(peakOrd, 1);
+  }
+
+  const riskPeak = peakOrd === 2 ? "critical" : peakOrd === 1 ? "elevated" : "nominal";
+
+  return {
+    riskPeak,
+    hadSpinning: spinningTypes.size > 0,
+    spinningTypes: [...spinningTypes],
+  };
+}
+
 function detectCodexSpinning(turns: TurnNode[]): SpinningSignal[] {
   const baseSignals = detectSpinning(turns);
   return baseSignals.filter((signal) => {
