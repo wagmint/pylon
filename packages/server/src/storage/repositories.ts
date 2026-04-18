@@ -46,6 +46,7 @@ export interface StoredSessionRow {
   lastEventAt: string;
   endedAt: string | null;
   status: string;
+  endReason: string | null;
   metadataJson: string | null;
 }
 
@@ -284,16 +285,17 @@ export function upsertSession(
       last_event_at,
       ended_at,
       status,
+      end_reason,
       metadata_json
     )
-    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'discovered', ?)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'discovered', NULL, ?)
     ON CONFLICT(id) DO UPDATE SET
-      source_type = excluded.source_type,
-      transcript_source_id = excluded.transcript_source_id,
-      project_path = excluded.project_path,
-      cwd = excluded.cwd,
-      last_event_at = excluded.last_event_at,
-      metadata_json = excluded.metadata_json
+      source_type = CASE WHEN sessions.status = 'ended' THEN sessions.source_type ELSE excluded.source_type END,
+      transcript_source_id = CASE WHEN sessions.status = 'ended' THEN sessions.transcript_source_id ELSE excluded.transcript_source_id END,
+      project_path = CASE WHEN sessions.status = 'ended' THEN sessions.project_path ELSE excluded.project_path END,
+      cwd = CASE WHEN sessions.status = 'ended' THEN sessions.cwd ELSE excluded.cwd END,
+      last_event_at = CASE WHEN sessions.status = 'ended' THEN sessions.last_event_at ELSE excluded.last_event_at END,
+      metadata_json = CASE WHEN sessions.status = 'ended' THEN sessions.metadata_json ELSE excluded.metadata_json END
   `).run(
     ref.id,
     ref.provider,
@@ -309,9 +311,9 @@ export function upsertSession(
   if (lifecycle) {
     db.prepare(`
       UPDATE sessions
-      SET status = ?, ended_at = ?
-      WHERE id = ?
-    `).run(lifecycle.status, lifecycle.endedAt, ref.id);
+      SET status = ?, ended_at = ?, end_reason = ?
+      WHERE id = ? AND COALESCE(status, '') != 'ended'
+    `).run(lifecycle.status, lifecycle.endedAt, lifecycle.endReason, ref.id);
   }
 }
 
@@ -376,12 +378,63 @@ export function listStoredSessions(provider?: AgentProvider): StoredSessionRow[]
       last_event_at as lastEventAt,
       ended_at as endedAt,
       status,
+      end_reason as endReason,
       metadata_json as metadataJson
     FROM sessions
     ${provider ? "WHERE source_type = ?" : ""}
     ORDER BY last_event_at DESC
   `;
   return (provider ? db.prepare(sql).all(provider) : db.prepare(sql).all()) as StoredSessionRow[];
+}
+
+export function getStoredSessionRef(sessionId: string): ProviderSessionRef | null {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT
+      s.id as id,
+      s.source_type as sourceType,
+      s.project_path as projectPath,
+      s.created_at as createdAt,
+      s.last_event_at as lastEventAt,
+      t.file_path as filePath,
+      t.file_size_bytes as fileSizeBytes,
+      t.file_mtime as fileMtime
+    FROM sessions s
+    LEFT JOIN transcript_sources t ON t.id = s.transcript_source_id
+    WHERE s.id = ?
+  `).get(sessionId) as
+    | {
+        id: string;
+        sourceType: string;
+        projectPath: string;
+        createdAt: string;
+        lastEventAt: string;
+        filePath: string | null;
+        fileSizeBytes: number | null;
+        fileMtime: string | null;
+      }
+    | undefined;
+
+  if (!row || !row.filePath) return null;
+  if (row.sourceType !== "claude" && row.sourceType !== "codex") return null;
+
+  const createdAt = new Date(row.createdAt);
+  const mtimeSource = row.fileMtime ?? row.lastEventAt;
+  const modifiedAt = new Date(mtimeSource);
+  const sizeBytes = row.fileSizeBytes ?? 0;
+
+  return {
+    id: row.id,
+    path: row.filePath,
+    projectPath: row.projectPath,
+    createdAt,
+    modifiedAt,
+    sizeBytes,
+    provider: row.sourceType,
+    sourcePath: row.filePath,
+    sourceMtime: modifiedAt,
+    sourceSizeBytes: sizeBytes,
+  };
 }
 
 export function listStoredClaudeSessions(): StoredSessionRow[] {

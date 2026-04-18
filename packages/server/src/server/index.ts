@@ -19,6 +19,7 @@ import { buildAnalyticsState } from "../control/analytics.js";
 import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
+import { reconcileOnStartup, reconcileSessionLifecycles } from "../storage/reconciliation.js";
 import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
 import type { DashboardState } from "../types/index.js";
 
@@ -65,6 +66,23 @@ let lastBroadcastTime = 0;
 let tickerInterval: ReturnType<typeof setInterval> | null = null;
 let sseMessageId = 0;
 let tickerRunning = false;
+let reconciliationInterval: ReturnType<typeof setInterval> | null = null;
+let reconciliationRunning = false;
+
+const RECONCILIATION_INTERVAL_MS = 30_000;
+
+function startReconciliationInterval() {
+  if (reconciliationInterval) return;
+  reconciliationInterval = setInterval(() => {
+    if (reconciliationRunning) return;
+    reconciliationRunning = true;
+    void reconcileSessionLifecycles()
+      .catch((err) => console.error("[reconciliation] failed:", err))
+      .finally(() => {
+        reconciliationRunning = false;
+      });
+  }, RECONCILIATION_INTERVAL_MS);
+}
 
 function shouldTickerRun() {
   return clients.size > 0 || relayManager.hasTargets;
@@ -798,6 +816,7 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
   const port = options?.port ?? parseInt(process.env.PORT ?? "7433", 10);
   await initStorage();
   await syncAllSessionsToStorage();
+  await reconcileOnStartup();
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
@@ -813,6 +832,8 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
   // Start relay manager (connects to configured relay targets)
   relayManager.start();
   if (relayManager.hasTargets) startTicker();
+
+  startReconciliationInterval();
 
   return server;
 }

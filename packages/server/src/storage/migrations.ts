@@ -869,6 +869,13 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 11,
+    name: "session_end_reason",
+    up: [
+      `ALTER TABLE sessions ADD COLUMN end_reason TEXT`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
