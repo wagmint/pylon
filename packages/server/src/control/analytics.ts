@@ -28,6 +28,7 @@ export interface AnalyticsState {
       inputTokens: number;
       outputTokens: number;
       cacheReadTokens: number;
+      totalCostUsd: number;
       turns: number;
       sessions: number;
     };
@@ -138,6 +139,7 @@ function queryCostTotals(db: ReturnType<typeof getDb>) {
          COALESCE(SUM(input_tokens), 0) AS input_tokens,
          COALESCE(SUM(output_tokens), 0) AS output_tokens,
          COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_tokens,
+         COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
          COUNT(*) AS turns,
          COUNT(DISTINCT session_id) AS sessions
        FROM turns`,
@@ -146,6 +148,7 @@ function queryCostTotals(db: ReturnType<typeof getDb>) {
     input_tokens: number;
     output_tokens: number;
     cache_read_tokens: number;
+    total_cost_usd: number;
     turns: number;
     sessions: number;
   };
@@ -154,6 +157,7 @@ function queryCostTotals(db: ReturnType<typeof getDb>) {
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     cacheReadTokens: row.cache_read_tokens,
+    totalCostUsd: row.total_cost_usd,
     turns: row.turns,
     sessions: row.sessions,
   };
