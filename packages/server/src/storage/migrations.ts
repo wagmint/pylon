@@ -1,9 +1,12 @@
+import { computeStoredTurnCost, normalizeModelFamily, PRICING_VERSION } from "../core/pricing.js";
+import type { TokenUsage } from "../types/index.js";
 import type { SqliteDatabase } from "./sqlite.js";
 
 interface Migration {
   id: number;
   name: string;
   up: string[];
+  afterSql?: (database: SqliteDatabase) => void;
 }
 
 const MIGRATIONS: Migration[] = [
@@ -824,6 +827,49 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
+    id: 10,
+    name: "per_turn_cost_facts",
+    up: [
+      `ALTER TABLE turns ADD COLUMN cost_usd REAL`,
+      `ALTER TABLE turns ADD COLUMN model_family TEXT`,
+      `ALTER TABLE turns ADD COLUMN pricing_version INTEGER NOT NULL DEFAULT 1`,
+    ],
+    afterSql(database: SqliteDatabase) {
+      const rows = database
+        .prepare(
+          `SELECT id, model, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens
+           FROM turns WHERE cost_usd IS NULL`,
+        )
+        .all() as Array<{
+        id: number;
+        model: string | null;
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_input_tokens: number;
+        cache_creation_input_tokens: number;
+      }>;
+
+      const update = database.prepare(
+        `UPDATE turns SET cost_usd = ?, model_family = ?, pricing_version = ? WHERE id = ?`,
+      );
+
+      for (const row of rows) {
+        const usage: TokenUsage = {
+          inputTokens: row.input_tokens,
+          outputTokens: row.output_tokens,
+          cacheReadInputTokens: row.cache_read_input_tokens,
+          cacheCreationInputTokens: row.cache_creation_input_tokens,
+        };
+        update.run(
+          computeStoredTurnCost(row.model, usage),
+          normalizeModelFamily(row.model),
+          PRICING_VERSION,
+          row.id,
+        );
+      }
+    },
+  },
+  {
     id: 11,
     name: "session_end_reason",
     up: [
@@ -864,6 +910,7 @@ export function runMigrations(database: SqliteDatabase): number {
       for (const sql of migration.up) {
         database.exec(sql);
       }
+      migration.afterSql?.(database);
       database
         .prepare("INSERT INTO schema_migrations(id, name, applied_at) VALUES (?, ?, ?)")
         .run(migration.id, migration.name, new Date().toISOString());

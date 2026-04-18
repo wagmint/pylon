@@ -50,6 +50,9 @@ const DEFAULT_PRICING: ModelPricing = PRICING_TABLE[4][1]; // Sonnet 4 pricing
 /** Shown in UI so users know rates are approximate */
 export const PRICING_UPDATED = "2026-03-27";
 
+/** Bump when PRICING_TABLE rates change — stored on each turn row for auditing */
+export const PRICING_VERSION = 1;
+
 export function getModelPricing(model: string | null): ModelPricing {
   if (!model) return DEFAULT_PRICING;
   const lower = model.toLowerCase();
@@ -67,6 +70,67 @@ export function computeTurnCost(model: string | null, usage: TokenUsage): number
     usage.cacheReadInputTokens * p.cacheRead +
     usage.cacheCreationInputTokens * p.cacheCreation
   );
+}
+
+/** Stable lowercase slug for GROUP BY — null/unknown → "unknown" */
+export function normalizeModelFamily(model: string | null): string {
+  if (!model) return "unknown";
+  const lower = model.toLowerCase();
+  // Anthropic — specific versions first
+  if (lower.startsWith("claude-opus-4-6")) return "opus-4.6";
+  if (lower.startsWith("claude-opus-4-5")) return "opus-4.5";
+  if (lower.startsWith("claude-opus-4-1")) return "opus-4.1";
+  if (lower.startsWith("claude-opus-4")) return "opus-4";
+  if (lower.startsWith("claude-sonnet-4-6")) return "sonnet-4.6";
+  if (lower.startsWith("claude-sonnet-4-5")) return "sonnet-4.5";
+  if (lower.startsWith("claude-sonnet-4")) return "sonnet-4";
+  if (lower.startsWith("claude-sonnet-3-5") || lower.startsWith("claude-sonnet-3.5")) return "sonnet-3.5";
+  if (lower.startsWith("claude-haiku-4-5") || lower.startsWith("claude-haiku-4.5")) return "haiku-4.5";
+  if (lower.startsWith("claude-haiku-3-5") || lower.startsWith("claude-haiku-3.5")) return "haiku-3.5";
+  if (lower.startsWith("claude-haiku")) return "haiku";
+  if (lower.startsWith("claude-sonnet")) return "sonnet";
+  if (lower.startsWith("claude-opus")) return "opus";
+  // OpenAI Codex
+  if (lower.startsWith("gpt-5.3-codex")) return "codex-5.3";
+  if (lower.startsWith("gpt-5.2-codex")) return "codex-5.2";
+  if (lower.startsWith("gpt-5.1-codex-mini")) return "codex-mini-5.1";
+  if (lower.startsWith("gpt-5.1-codex-max")) return "codex-max-5.1";
+  if (lower.startsWith("gpt-5.1-codex")) return "codex-5.1";
+  if (lower.startsWith("gpt-5-codex")) return "codex-5";
+  if (lower.startsWith("codex-mini")) return "codex-mini";
+  if (lower === "codex" || lower.startsWith("codex-")) return "codex";
+  // OpenAI non-Codex
+  if (lower.startsWith("gpt-5.4")) return "gpt-5.4";
+  if (lower.startsWith("gpt-5.2")) return "gpt-5.2";
+  if (lower.startsWith("gpt-5.1")) return "gpt-5.1";
+  if (lower.startsWith("gpt-5")) return "gpt-5";
+  if (lower.startsWith("o4-mini")) return "o4-mini";
+  if (lower.startsWith("o3-pro")) return "o3-pro";
+  if (lower.startsWith("o3-mini")) return "o3-mini";
+  if (lower.startsWith("o3")) return "o3";
+  if (lower.startsWith("gpt-4.1-mini")) return "gpt-4.1-mini";
+  if (lower.startsWith("gpt-4.1-nano")) return "gpt-4.1-nano";
+  if (lower.startsWith("gpt-4.1")) return "gpt-4.1";
+  if (lower.startsWith("gpt-4o-mini")) return "gpt-4o-mini";
+  if (lower.startsWith("gpt-4o")) return "gpt-4o";
+  return "unknown";
+}
+
+/** Like computeTurnCost but returns 0 for null/unknown models (no Sonnet fallback) */
+export function computeStoredTurnCost(model: string | null, usage: TokenUsage): number {
+  if (!model) return 0;
+  const lower = model.toLowerCase();
+  for (const [prefix, p] of PRICING_TABLE) {
+    if (lower.startsWith(prefix)) {
+      return (
+        usage.inputTokens * p.input +
+        usage.outputTokens * p.output +
+        usage.cacheReadInputTokens * p.cacheRead +
+        usage.cacheCreationInputTokens * p.cacheCreation
+      );
+    }
+  }
+  return 0;
 }
 
 /** "claude-sonnet-4-20250514" → "Sonnet 4", "claude-opus-4-6" → "Opus 4.6" */
