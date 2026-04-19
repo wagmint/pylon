@@ -362,6 +362,7 @@ function deriveAndStoreArtifacts(input: {
   now: string;
 }): void {
   const db = getDb();
+  const seenArtifactIds = new Set<string>();
   const commits = db.prepare(`
     SELECT
       commits.id as id,
@@ -379,6 +380,8 @@ function deriveAndStoreArtifacts(input: {
   for (const commit of commits) {
     const commitKey = commit.commitSha?.trim() || commit.commitMessage?.trim() || `turn:${commit.turnIndex}`;
     const artifactId = makeDeterministicId("artifact", input.projectPath, "commit", commit.sessionId, commitKey);
+    if (seenArtifactIds.has(artifactId)) continue;
+    seenArtifactIds.add(artifactId);
     const title = commit.commitMessage?.trim()
       ? `Commit: ${commit.commitMessage.trim()}`
       : commit.commitSha
@@ -437,6 +440,8 @@ function deriveAndStoreArtifacts(input: {
 
   for (const file of fileChanges) {
     const artifactId = makeDeterministicId("artifact", input.projectPath, "file", file.filePath);
+    if (seenArtifactIds.has(artifactId)) continue;
+    seenArtifactIds.add(artifactId);
     const relativePath = safeRelative(input.projectPath, file.filePath);
     const contributingSessions = [...(fileSessionsByPath.get(file.filePath) ?? new Set<string>())];
     if (contributingSessions.length === 0) continue;
