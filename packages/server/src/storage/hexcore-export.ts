@@ -4,6 +4,7 @@ import { getDb } from "./db.js";
 import { STORAGE_PARSER_VERSION } from "./repositories.js";
 import { getCachedOrParse, getAccumulatorPlans } from "../core/session-cache.js";
 import { buildCanonicalSessionPlans } from "../core/plans.js";
+import { getSessionSummary, listSessionModelCosts } from "./session-summaries.js";
 import type { SessionInfo, SessionPlan } from "../types/index.js";
 
 export interface HexcoreSyncCursor {
@@ -30,6 +31,49 @@ export interface ExportPlan {
   progressPct: number;
   progressSummary: string;
   isFromActiveSession: boolean;
+}
+
+export interface ExportSessionSummary {
+  totalTurns: number;
+  totalCommits: number;
+  totalErrors: number;
+  totalCostUsd: number;
+  errorRate: number;
+  outcome: string;
+  isDeadEnd: boolean;
+  deadEndReason: string | null;
+  durationMs: number | null;
+  riskPeak: string;
+  hadSpinning: boolean;
+  filesChanged: string[];
+  toolsUsed: Record<string, number>;
+  plansCreated: number;
+  plansCompleted: number;
+  operatorId: string | null;
+  operatorName: string | null;
+  workstreamId: string | null;
+}
+
+export interface ExportModelCost {
+  modelFamily: string;
+  turnCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
+export interface ExportTurnCost {
+  turnIndex: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  occurredAt: string;
+  rawModel: string;
+  modelFamily: string;
 }
 
 export interface HexcoreExportSessionPayload {
@@ -59,6 +103,9 @@ export interface HexcoreExportSessionPayload {
     errors: unknown[];
     plans: ExportPlan[];
   };
+  summary?: ExportSessionSummary;
+  modelCosts?: ExportModelCost[];
+  turnCosts?: ExportTurnCost[];
 }
 
 export interface HexcoreExportPayload {
@@ -108,6 +155,24 @@ function parseJsonStringArray(value: string | null): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function safeParseJsonArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeParseJsonObject(value: string): Record<string, number> {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
 }
 
@@ -227,7 +292,7 @@ export function buildHexcoreExportPayload(
   const cursor = normalizeCursor(options?.cursor);
   if (projectPaths.length === 0) {
     return {
-      schemaVersion: "hexdeck-session-ingest-v1",
+      schemaVersion: "hexdeck-session-ingest-v2",
       checkpoint: {
         mode: "empty",
         parserVersion: STORAGE_PARSER_VERSION,
@@ -360,6 +425,22 @@ export function buildHexcoreExportPayload(
     ORDER BY line_number ASC
   `);
 
+  const turnCostStmt = db.prepare(`
+    SELECT
+      turn_index as turnIndex,
+      cost_usd as costUsd,
+      input_tokens as inputTokens,
+      output_tokens as outputTokens,
+      cache_read_input_tokens as cacheReadTokens,
+      cache_creation_input_tokens as cacheWriteTokens,
+      started_at as occurredAt,
+      COALESCE(model, model_family, 'unknown') as rawModel,
+      COALESCE(model_family, model, 'unknown') as modelFamily
+    FROM turns
+    WHERE session_id = ? AND cost_usd > 0
+    ORDER BY turn_index ASC
+  `);
+
   let lastEventAtMax: string | null = null;
   let lastSessionIdMax: string | null = null;
   const exportedSessions = sessions.map((session) => {
@@ -399,6 +480,82 @@ export function buildHexcoreExportPayload(
       lastSessionIdMax = session.sessionId;
     }
 
+    // Build v2 summary/cost fields
+    const summaryRow = getSessionSummary(session.sessionId);
+    let v2Fields: {
+      summary?: ExportSessionSummary;
+      modelCosts?: ExportModelCost[];
+      turnCosts?: ExportTurnCost[];
+    } = {};
+
+    if (summaryRow) {
+      const filesChanged: string[] = summaryRow.filesChanged
+        ? safeParseJsonArray(summaryRow.filesChanged)
+        : [];
+      const toolsUsed: Record<string, number> = summaryRow.toolsUsed
+        ? safeParseJsonObject(summaryRow.toolsUsed)
+        : {};
+
+      v2Fields.summary = {
+        totalTurns: summaryRow.totalTurns,
+        totalCommits: summaryRow.totalCommits,
+        totalErrors: summaryRow.totalErrors,
+        totalCostUsd: summaryRow.totalCostUsd,
+        errorRate: summaryRow.errorRate,
+        outcome: summaryRow.outcome,
+        isDeadEnd: summaryRow.isDeadEnd === 1,
+        deadEndReason: summaryRow.deadEndReason,
+        durationMs: summaryRow.durationMs,
+        riskPeak: summaryRow.riskPeak,
+        hadSpinning: summaryRow.hadSpinning === 1,
+        filesChanged,
+        toolsUsed,
+        plansCreated: summaryRow.plansCreated,
+        plansCompleted: summaryRow.plansCompleted,
+        operatorId: summaryRow.operatorId,
+        operatorName: summaryRow.operatorName,
+        workstreamId: summaryRow.workstreamId,
+      };
+
+      // modelCosts are summary-derived, so keep them gated by summaryRow
+      v2Fields.modelCosts = listSessionModelCosts(session.sessionId).map((mc) => ({
+        modelFamily: mc.modelFamily,
+        turnCount: mc.turnCount,
+        inputTokens: mc.inputTokens,
+        outputTokens: mc.outputTokens,
+        cacheReadTokens: mc.cacheReadTokens,
+        cacheCreationTokens: mc.cacheCreationTokens,
+        costUsd: mc.costUsd,
+      }));
+    }
+
+    // turnCosts come directly from turns table — export whenever priced turns exist,
+    // even for active sessions that don't have a materialized summary yet
+    const turnCostRows = turnCostStmt.all(session.sessionId) as Array<{
+      turnIndex: number;
+      costUsd: number;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+      occurredAt: string;
+      rawModel: string;
+      modelFamily: string;
+    }>;
+    // Always include turnCosts — even an empty array signals "no costed turns"
+    // so Hexcore can clear stale rows from a prior ingest
+    v2Fields.turnCosts = turnCostRows.map((tc) => ({
+      turnIndex: tc.turnIndex,
+      costUsd: tc.costUsd,
+      inputTokens: tc.inputTokens,
+      outputTokens: tc.outputTokens,
+      cacheReadTokens: tc.cacheReadTokens,
+      cacheWriteTokens: tc.cacheWriteTokens,
+      occurredAt: tc.occurredAt,
+      rawModel: tc.rawModel,
+      modelFamily: tc.modelFamily,
+    }));
+
     const payloadWithoutHash = {
       sessionId: session.sessionId,
       sourceType: session.sourceType,
@@ -417,6 +574,7 @@ export function buildHexcoreExportPayload(
       filesInPlay,
       metadata,
       evidence,
+      ...v2Fields,
     };
 
     return {
@@ -426,7 +584,7 @@ export function buildHexcoreExportPayload(
   });
 
   return {
-    schemaVersion: "hexdeck-session-ingest-v1",
+    schemaVersion: "hexdeck-session-ingest-v2",
     checkpoint: {
       mode: cursor ? "incremental_project_export" : "bootstrap_recent_24h",
       parserVersion: STORAGE_PARSER_VERSION,
