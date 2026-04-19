@@ -16,6 +16,7 @@ import { syncHexdeckToRelayTarget } from "../relay/hexdeck-sync.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
 import { buildControlState } from "../control/read-model.js";
 import { buildAnalyticsState } from "../control/analytics.js";
+import { querySpendByDimension, queryTrends, querySessionList, validateSpendParams, validateTrendParams, validateSessionListParams } from "../control/metrics.js";
 import { getStorageDiskUsage, getStorageInfo, initStorage, rebuildStorage } from "../storage/db.js";
 import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
@@ -771,6 +772,49 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   /** Pre-aggregated analytics for the control page (File Heatmap / Cost / Activity) */
   app.get("/api/control/analytics", (c) => {
     return c.json(buildAnalyticsState());
+  });
+
+  // ─── Metrics Query Endpoints ──────────────────────────────────────────────
+
+  /** Spend breakdown by operator, project, model, or outcome */
+  app.get("/api/metrics/spend", (c) => {
+    const result = validateSpendParams({
+      by: c.req.query("by"),
+      from: c.req.query("from"),
+      to: c.req.query("to"),
+      operator: c.req.query("operator"),
+      project: c.req.query("project"),
+    });
+    if ("error" in result) return c.json({ error: result.error }, 400);
+    return c.json(querySpendByDimension(result.params));
+  });
+
+  /** Time-series trends for cost, error_rate, turns, sessions, dead_end_rate */
+  app.get("/api/metrics/trends", (c) => {
+    const result = validateTrendParams({
+      metric: c.req.query("metric"),
+      granularity: c.req.query("granularity"),
+      days: c.req.query("days"),
+      operator: c.req.query("operator"),
+      project: c.req.query("project"),
+    });
+    if ("error" in result) return c.json({ error: result.error }, 400);
+    return c.json(queryTrends(result.params));
+  });
+
+  /** Paginated session summary list with filters */
+  app.get("/api/metrics/sessions", (c) => {
+    const result = validateSessionListParams({
+      from: c.req.query("from"),
+      to: c.req.query("to"),
+      outcome: c.req.query("outcome"),
+      operator: c.req.query("operator"),
+      project: c.req.query("project"),
+      limit: c.req.query("limit"),
+      offset: c.req.query("offset"),
+    });
+    if ("error" in result) return c.json({ error: result.error }, 400);
+    return c.json(querySessionList(result.params));
   });
 
   /** Rebuild the local parsed index and baseline storage from source transcripts. */
