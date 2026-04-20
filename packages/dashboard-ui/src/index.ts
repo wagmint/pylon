@@ -35,6 +35,18 @@ export type {
   TurnSummary,
 } from "./types";
 
+// Context Map
+export type {
+  ContextNodeType,
+  TaskStatus,
+  ContextNode,
+  ContextEdge,
+  TaskHandoff,
+  ContextMapSummary,
+  ContextMap,
+} from "./context-map/types";
+export { deriveContextMap } from "./context-map/derive";
+
 // Utils
 export { timeAgo, formatDuration } from "./utils";
 
@@ -64,3 +76,4 @@ export { TurnEntry } from "./components/TurnEntry";
 export { AgentContextCard } from "./components/AgentContextCard";
 export { ContextRecapPanel, ContextRecapPanelSkeleton } from "./components/ContextRecapPanel";
 export { RiskPanel } from "./components/RiskPanel";
+export { ContextMapSection } from "./components/ContextMapSection";

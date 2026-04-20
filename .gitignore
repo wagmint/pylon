@@ -8,3 +8,5 @@ dashboard/
 .claude/
 CLAUDE.md
 docs/
+.worktrees/
+.superpowers/
