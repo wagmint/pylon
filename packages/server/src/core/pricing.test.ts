@@ -10,8 +10,8 @@ describe("getModelPricing", () => {
 
   it("returns Opus pricing for claude-opus-4-6", () => {
     const p = getModelPricing("claude-opus-4-6");
-    expect(p.input).toBe(15e-6);
-    expect(p.output).toBe(75e-6);
+    expect(p.input).toBe(5e-6);
+    expect(p.output).toBe(25e-6);
   });
 
   it("returns Sonnet pricing for claude-sonnet-4", () => {
@@ -22,7 +22,7 @@ describe("getModelPricing", () => {
 
   it("returns Haiku pricing for claude-haiku-4-5", () => {
     const p = getModelPricing("claude-haiku-4-5");
-    expect(p.input).toBe(0.8e-6);
+    expect(p.input).toBe(1e-6);
   });
 
   it("returns Codex pricing for gpt-5.1-codex", () => {
@@ -49,7 +49,7 @@ describe("getModelPricing", () => {
 
   it("is case-insensitive", () => {
     const p = getModelPricing("Claude-Opus-4-6");
-    expect(p.input).toBe(15e-6);
+    expect(p.input).toBe(5e-6);
   });
 
   it("matches by prefix — claude-sonnet-4-20250514 matches claude-sonnet-4", () => {
@@ -90,10 +90,10 @@ describe("computeTurnCost", () => {
       cacheReadInputTokens: 100_000,
       cacheCreationInputTokens: 0,
     };
-    // 500 * 15e-6 + 200 * 75e-6 + 100000 * 1.5e-6
-    // = 0.0075 + 0.015 + 0.15 = 0.1725
+    // 500 * 5e-6 + 200 * 25e-6 + 100000 * 0.5e-6
+    // = 0.0025 + 0.005 + 0.05 = 0.0575
     const cost = computeTurnCost("claude-opus-4-6", usage);
-    expect(cost).toBeCloseTo(0.1725, 6);
+    expect(cost).toBeCloseTo(0.0575, 6);
   });
 
   it("uses default pricing for null model", () => {
