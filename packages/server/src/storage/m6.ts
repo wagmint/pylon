@@ -385,7 +385,7 @@ function deriveAndStoreArtifacts(input: {
         ? `Commit ${commit.commitSha}`
         : "Commit";
     db.prepare(`
-      INSERT INTO artifacts(
+      INSERT OR IGNORE INTO artifacts(
         id, project_path, artifact_type, title, description, file_path, commit_sha, source_session_id,
         created_at, updated_at, metadata_json
       )
@@ -441,7 +441,7 @@ function deriveAndStoreArtifacts(input: {
     const contributingSessions = [...(fileSessionsByPath.get(file.filePath) ?? new Set<string>())];
     if (contributingSessions.length === 0) continue;
     db.prepare(`
-      INSERT INTO artifacts(
+      INSERT OR IGNORE INTO artifacts(
         id, project_path, artifact_type, title, description, file_path, commit_sha, source_session_id,
         created_at, updated_at, metadata_json
       )
@@ -501,7 +501,7 @@ function deriveAndStoreDecisions(input: {
     const title = `${capitalize(approval.approvalType)} ${approval.status}`;
     const confidence = approval.status === "rejected" ? 0.94 : 0.7;
     db.prepare(`
-      INSERT INTO decisions(
+      INSERT OR IGNORE INTO decisions(
         id, project_path, decision_type, title, summary, status, confidence, decided_at, created_at, updated_at, metadata_json
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -594,7 +594,7 @@ function deriveAndStoreBlockers(input: {
         : "Session stalled on error";
 
     db.prepare(`
-      INSERT INTO blockers(
+      INSERT OR IGNORE INTO blockers(
         id, project_path, blocker_type, title, summary, status, confidence, first_seen_at, last_seen_at, created_at, updated_at, metadata_json
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -679,7 +679,7 @@ function attachArtifact(
   const seenWorkstreamIds = new Set<string>();
   for (const sessionId of sessionIds) {
     db.prepare(`
-      INSERT INTO session_artifacts(session_id, artifact_id, relationship_type, confidence, derived_at)
+      INSERT OR IGNORE INTO session_artifacts(session_id, artifact_id, relationship_type, confidence, derived_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(sessionId, artifactId, "produced_in", 0.95, now);
 
@@ -687,7 +687,7 @@ function attachArtifact(
       if (seenTaskIds.has(taskId)) continue;
       seenTaskIds.add(taskId);
       db.prepare(`
-        INSERT INTO task_artifacts(task_id, artifact_id, relationship_type, confidence, derived_at)
+        INSERT OR IGNORE INTO task_artifacts(task_id, artifact_id, relationship_type, confidence, derived_at)
         VALUES (?, ?, ?, ?, ?)
       `).run(taskId, artifactId, "supports", 0.86, now);
     }
@@ -696,7 +696,7 @@ function attachArtifact(
       if (seenWorkstreamIds.has(workstreamId)) continue;
       seenWorkstreamIds.add(workstreamId);
       db.prepare(`
-        INSERT INTO workstream_artifacts(workstream_id, artifact_id, relationship_type, confidence, derived_at)
+        INSERT OR IGNORE INTO workstream_artifacts(workstream_id, artifact_id, relationship_type, confidence, derived_at)
         VALUES (?, ?, ?, ?, ?)
       `).run(workstreamId, artifactId, "supports", 0.82, now);
     }
@@ -712,20 +712,20 @@ function attachDecision(
 ): void {
   const db = getDb();
   db.prepare(`
-    INSERT INTO session_decisions(session_id, decision_id, relationship_type, confidence, derived_at)
+    INSERT OR IGNORE INTO session_decisions(session_id, decision_id, relationship_type, confidence, derived_at)
     VALUES (?, ?, ?, ?, ?)
   `).run(sessionId, decisionId, "made_in", 0.95, now);
 
   for (const taskId of taskIdsBySession.get(sessionId) ?? []) {
     db.prepare(`
-      INSERT INTO task_decisions(task_id, decision_id, relationship_type, confidence, derived_at)
+      INSERT OR IGNORE INTO task_decisions(task_id, decision_id, relationship_type, confidence, derived_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(taskId, decisionId, "affects", 0.84, now);
   }
 
   for (const workstreamId of workstreamIdsBySession.get(sessionId) ?? []) {
     db.prepare(`
-      INSERT INTO workstream_decisions(workstream_id, decision_id, relationship_type, confidence, derived_at)
+      INSERT OR IGNORE INTO workstream_decisions(workstream_id, decision_id, relationship_type, confidence, derived_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(workstreamId, decisionId, "affects", 0.8, now);
   }
@@ -740,20 +740,20 @@ function attachBlocker(
 ): void {
   const db = getDb();
   db.prepare(`
-    INSERT INTO session_blockers(session_id, blocker_id, relationship_type, confidence, derived_at)
+    INSERT OR IGNORE INTO session_blockers(session_id, blocker_id, relationship_type, confidence, derived_at)
     VALUES (?, ?, ?, ?, ?)
   `).run(sessionId, blockerId, "blocks", 0.96, now);
 
   for (const taskId of taskIdsBySession.get(sessionId) ?? []) {
     db.prepare(`
-      INSERT INTO task_blockers(task_id, blocker_id, relationship_type, confidence, derived_at)
+      INSERT OR IGNORE INTO task_blockers(task_id, blocker_id, relationship_type, confidence, derived_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(taskId, blockerId, "blocks", 0.9, now);
   }
 
   for (const workstreamId of workstreamIdsBySession.get(sessionId) ?? []) {
     db.prepare(`
-      INSERT INTO workstream_blockers(workstream_id, blocker_id, relationship_type, confidence, derived_at)
+      INSERT OR IGNORE INTO workstream_blockers(workstream_id, blocker_id, relationship_type, confidence, derived_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(workstreamId, blockerId, "blocks", 0.86, now);
   }
