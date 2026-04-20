@@ -14,7 +14,7 @@ import {
   RelayPanel,
 } from "@hexdeck/dashboard-ui";
 import { GuidedTour } from "@/components/GuidedTour";
-import { HomeView } from "./HomeView";
+import { MeSpendView } from "./MeSpendView";
 import { DetailView } from "./DetailView";
 
 export default function DashboardPage() {
@@ -212,7 +212,7 @@ export default function DashboardPage() {
               onDecide={handleDecide}
             />
           ) : (
-            <HomeView state={state} />
+            <MeSpendView state={state} />
           )}
         </div>
 
