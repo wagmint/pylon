@@ -188,7 +188,20 @@ export interface CollisionAckMessage {
   action: "acknowledged" | "confirmed";
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage;
+export interface GitProjectState {
+  projectPath: string;
+  branch: string;
+  headHash: string;
+  dirty: boolean;
+  previousHeadHash?: string;
+}
+
+export interface GitStateMessage {
+  type: "git_state";
+  projects: GitProjectState[];
+}
+
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {

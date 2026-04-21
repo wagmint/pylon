@@ -5,6 +5,8 @@ import type {
   StateUpdateMessage,
   HeartbeatMessage,
   CollisionAckMessage,
+  GitStateMessage,
+  GitProjectState,
   ServerMessage,
   RelayCollision,
 } from "./types.js";
@@ -119,6 +121,12 @@ export class RelayConnection {
   sendCollisionAck(collisionId: string, action: "acknowledged" | "confirmed"): void {
     if (!this.isConnected) return;
     const msg: CollisionAckMessage = { type: "collision_ack", collisionId, action };
+    this.send(msg);
+  }
+
+  sendGitState(projects: GitProjectState[]): void {
+    if (!this.isConnected) return;
+    const msg: GitStateMessage = { type: "git_state", projects };
     this.send(msg);
   }
 

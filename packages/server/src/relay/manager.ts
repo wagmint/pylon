@@ -6,6 +6,7 @@ import { buildIntentEventsForTarget } from "./intent-events.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
+import { pollGitState } from "../core/git-state.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
 import type { RelayTarget } from "./types.js";
@@ -14,6 +15,7 @@ const INTENT_BATCH_SIZE = 100;
 const INTENT_FLUSH_INTERVAL_MS = 2_000;
 const SEEN_EVENT_TTL_MS = 15 * 60 * 1000;
 const HEXDECK_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const GIT_STATE_POLL_INTERVAL_MS = 3_000;
 
 export interface RelayTargetStatus {
   hexcoreId: string;
@@ -43,6 +45,7 @@ class RelayManager {
   private pendingHexdeckSyncByTarget = new Map<string, PendingHexdeckSyncState>();
   private started = false;
   private collisionAlertCallback: OnCollisionAlerts | null = null;
+  private lastGitStatePollAt = 0;
 
   /** True if any relay targets are configured (keeps ticker alive). */
   get hasTargets(): boolean {
@@ -198,6 +201,27 @@ class RelayManager {
     const selfName = getSelfName(opConfig);
     const selfColor = getOperatorColor(0);
 
+    // Throttled git state polling (~3s) — poll once, fan out to all targets.
+    // Must poll before the target loop to avoid global dedup consuming changes
+    // that multiple targets need to see.
+    const now = Date.now();
+    let gitChanges: import("../core/git-state.js").GitProjectState[] = [];
+    if (now - this.lastGitStatePollAt >= GIT_STATE_POLL_INTERVAL_MS) {
+      this.lastGitStatePollAt = now;
+      try {
+        // Collect all unique project paths across targets
+        const allProjects = new Set<string>();
+        for (const t of config.targets) {
+          for (const p of t.projects) allProjects.add(p);
+        }
+        if (allProjects.size > 0) {
+          gitChanges = pollGitState([...allProjects]);
+        }
+      } catch {
+        // Best effort — never interfere with relay state path
+      }
+    }
+
     for (const target of config.targets) {
       if (target.projects.length === 0) continue;
 
@@ -216,6 +240,15 @@ class RelayManager {
       // This must never interfere with the existing relay state path.
       void this.sendIntentEventsForTarget(target, rawState, parsedSessions);
       void this.maybeSyncHexdeckToTarget(target);
+
+      // Fan out git state changes filtered to this target's projects
+      if (gitChanges.length > 0) {
+        const targetProjects = new Set(target.projects);
+        const filtered = gitChanges.filter((g) => targetProjects.has(g.projectPath));
+        if (filtered.length > 0) {
+          conn.sendGitState(filtered);
+        }
+      }
     }
   }
 
