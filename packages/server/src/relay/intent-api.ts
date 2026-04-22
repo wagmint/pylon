@@ -2,6 +2,12 @@ import { deriveHttpBaseFromWs } from "./link.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
 import type { RelayTarget } from "./types.js";
 
+export class IntentIngestError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+  }
+}
+
 export async function sendIntentEvents(target: RelayTarget, events: NormalizedIntentEvent[]): Promise<void> {
   if (events.length === 0) return;
 
@@ -25,6 +31,6 @@ export async function sendIntentEvents(target: RelayTarget, events: NormalizedIn
     } catch {
       // ignore
     }
-    throw new Error(message);
+    throw new IntentIngestError(message, response.status);
   }
 }

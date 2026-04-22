@@ -4,7 +4,7 @@ import { loadRelayConfig, saveRelayConfig } from "./config.js";
 import { transformToOperatorState } from "./transform.js";
 import { buildIntentEventsForTarget } from "./intent-events.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
-import { sendIntentEvents } from "./intent-api.js";
+import { sendIntentEvents, IntentIngestError } from "./intent-api.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { pollGitState } from "../core/git-state.js";
 import { RelayConnection } from "./connection.js";
@@ -17,6 +17,8 @@ const INTENT_FLUSH_INTERVAL_MS = 2_000;
 const SEEN_EVENT_TTL_MS = 15 * 60 * 1000;
 const HEXDECK_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const GIT_STATE_POLL_INTERVAL_MS = 3_000;
+const INTENT_BACKOFF_INITIAL_MS = 4_000;
+const INTENT_BACKOFF_MAX_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface RelayTargetStatus {
   hexcoreId: string;
@@ -32,6 +34,12 @@ interface PendingIntentFlushState {
   seenIds: Map<string, number>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   flushInFlight: Promise<void> | null;
+  /** Current backoff delay in ms; 0 = no backoff. Doubles on each consecutive failure. */
+  backoffMs: number;
+  /** When the backoff period expires (Date.now() + backoffMs). Flushes are skipped until this time. */
+  backoffUntil: number;
+  /** True when flush is paused due to auth failure (401/403). Cleared on token refresh. */
+  authPaused: boolean;
 }
 
 interface PendingHexdeckSyncState {
@@ -313,6 +321,14 @@ class RelayManager {
       target.token = newToken;
       saveRelayConfig(config);
     }
+    // Resume intent event flushing now that we have a fresh token
+    const intentState = this.pendingIntentFlushByTarget.get(hexcoreId);
+    if (intentState?.authPaused) {
+      intentState.authPaused = false;
+      intentState.backoffMs = 0;
+      intentState.backoffUntil = 0;
+      console.log(`[relay] token refreshed for ${hexcoreId}, resuming intent flush`);
+    }
   }
 
   private syncConnections(): void {
@@ -409,6 +425,9 @@ class RelayManager {
         seenIds: new Map<string, number>(),
         flushTimer: null,
         flushInFlight: null,
+        backoffMs: 0,
+        backoffUntil: 0,
+        authPaused: false,
       };
       this.pendingIntentFlushByTarget.set(hexcoreId, state);
     }
@@ -419,6 +438,10 @@ class RelayManager {
     if (state.flushInFlight) {
       return state.flushInFlight;
     }
+    // Skip flush if auth is paused (waiting for token refresh)
+    if (state.authPaused) return;
+    // Skip flush if still in backoff window
+    if (state.backoffUntil > Date.now()) return;
 
     state.flushInFlight = this.doFlushIntentEvents(target, state);
     try {
@@ -434,9 +457,32 @@ class RelayManager {
       try {
         await sendIntentEvents(target, batch);
       } catch (err) {
-        console.error(`[relay] intent flush failed for ${target.hexcoreId}:`, err instanceof Error ? err.message : err);
+        const status = err instanceof IntentIngestError ? err.status : 0;
+
+        if (status === 401 || status === 403) {
+          // Auth failure — stop retrying until token is refreshed.
+          // Queue is preserved so events flush once auth is restored.
+          state.authPaused = true;
+          console.error(`[relay] intent flush auth failed (${status}) for ${target.hexcoreId}, pausing until token refresh`);
+          break;
+        }
+
+        // For 429 and other transient errors, apply exponential backoff
+        state.backoffMs = state.backoffMs === 0
+          ? INTENT_BACKOFF_INITIAL_MS
+          : Math.min(state.backoffMs * 2, INTENT_BACKOFF_MAX_MS);
+        state.backoffUntil = Date.now() + state.backoffMs;
+        console.error(
+          `[relay] intent flush failed for ${target.hexcoreId}:`,
+          err instanceof Error ? err.message : err,
+          `(backoff ${state.backoffMs}ms)`,
+        );
         break;
       }
+
+      // Success — reset backoff
+      state.backoffMs = 0;
+      state.backoffUntil = 0;
 
       const now = Date.now();
       for (const event of batch) {
