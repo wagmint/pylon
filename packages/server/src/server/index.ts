@@ -71,8 +71,11 @@ let sseMessageId = 0;
 let tickerRunning = false;
 let reconciliationInterval: ReturnType<typeof setInterval> | null = null;
 let reconciliationRunning = false;
+let storageSyncInterval: ReturnType<typeof setInterval> | null = null;
+let storageSyncRunning = false;
 
 const RECONCILIATION_INTERVAL_MS = 30_000;
+const STORAGE_SYNC_INTERVAL_MS = 30_000;
 
 function startReconciliationInterval() {
   if (reconciliationInterval) return;
@@ -85,6 +88,31 @@ function startReconciliationInterval() {
         reconciliationRunning = false;
       });
   }, RECONCILIATION_INTERVAL_MS);
+}
+
+function startStorageSyncInterval() {
+  if (storageSyncInterval) return;
+  storageSyncInterval = setInterval(() => {
+    if (storageSyncRunning) return;
+    storageSyncRunning = true;
+    void (async () => {
+      try {
+        await syncAllSessionsToStorage();
+        materializePendingSummaries();
+      } catch (err) {
+        console.error("[storage-sync] periodic sync failed:", err);
+      } finally {
+        storageSyncRunning = false;
+      }
+    })();
+  }, STORAGE_SYNC_INTERVAL_MS);
+}
+
+function stopStorageSyncInterval() {
+  if (storageSyncInterval) {
+    clearInterval(storageSyncInterval);
+    storageSyncInterval = null;
+  }
 }
 
 function shouldTickerRun() {
@@ -959,6 +987,7 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
   if (relayManager.hasTargets) startTicker();
 
   startReconciliationInterval();
+  startStorageSyncInterval();
 
   return server;
 }
