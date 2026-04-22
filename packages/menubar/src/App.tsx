@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useHexcoreSSE } from "./hooks/useHexcoreSSE";
 import { useAlerts } from "./hooks/useAlerts";
+import { useSurfacing } from "./hooks/useSurfacing";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { useDeepLink } from "./hooks/useDeepLink";
 import { MenuBarApp } from "./components/MenuBarApp";
@@ -19,8 +20,9 @@ export default function App() {
 
 function MainApp() {
   useAutoUpdate();
-  const { state, loading, error, connected } = useHexcoreSSE();
+  const { state, surfacing, loading, error, connected } = useHexcoreSSE();
   const { alerts, severity } = useAlerts(state, connected);
+  const { allWorkstreams, allUnassigned, reportStatus, statusActions } = useSurfacing(surfacing, connected);
   const { toast: joinToast, clearToast: clearJoinToast } = useDeepLink(windowLabel === "main");
 
   if (windowLabel === "widget") {
@@ -34,6 +36,10 @@ function MainApp() {
         error={error}
         joinToast={joinToast}
         clearJoinToast={clearJoinToast}
+        allWorkstreams={allWorkstreams}
+        allUnassigned={allUnassigned}
+        reportStatus={reportStatus}
+        statusActions={statusActions}
       />
     );
   }
@@ -48,6 +54,10 @@ function MainApp() {
       error={error}
       joinToast={joinToast}
       clearJoinToast={clearJoinToast}
+      allWorkstreams={allWorkstreams}
+      allUnassigned={allUnassigned}
+      reportStatus={reportStatus}
+      statusActions={statusActions}
     />
   );
 }

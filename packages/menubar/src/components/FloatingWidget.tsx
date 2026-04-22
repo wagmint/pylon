@@ -1,6 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { TraySeverity, HexcoreAlert } from "../lib/alerts";
+import type { StatusActionState, WorkstreamStatusAction } from "../lib/surfacing-types";
 import type { DashboardState } from "../lib/types";
+import type { FlatWorkstream, FlatUnassigned } from "../hooks/useSurfacing";
 import type { WidgetState } from "../hooks/useWidgetState";
 import type { JoinToast } from "../hooks/useDeepLink";
 import { FaviconIcon } from "./FaviconIcon";
@@ -25,6 +27,10 @@ interface FloatingWidgetProps {
   error: string | null;
   joinToast?: JoinToast | null;
   clearJoinToast?: () => void;
+  allWorkstreams: FlatWorkstream[];
+  allUnassigned: FlatUnassigned[];
+  reportStatus: (hexcoreId: string, workstreamId: string, action: WorkstreamStatusAction) => void;
+  statusActions: Map<string, StatusActionState>;
 }
 
 export function FloatingWidget({
@@ -38,6 +44,10 @@ export function FloatingWidget({
   error,
   joinToast,
   clearJoinToast,
+  allWorkstreams,
+  allUnassigned,
+  reportStatus,
+  statusActions,
 }: FloatingWidgetProps) {
   // Drag-or-click: start drag only after 3px of movement, otherwise treat as click
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -120,6 +130,10 @@ export function FloatingWidget({
           onClose={widget.collapseToFavicon}
           joinToast={joinToast}
           clearJoinToast={clearJoinToast}
+          allWorkstreams={allWorkstreams}
+          allUnassigned={allUnassigned}
+          reportStatus={reportStatus}
+          statusActions={statusActions}
         />
       )}
     </div>

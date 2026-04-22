@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import type { TraySeverity, HexcoreAlert } from "../lib/alerts";
+import type { StatusActionState, WorkstreamStatusAction } from "../lib/surfacing-types";
 import type { DashboardState } from "../lib/types";
+import type { FlatWorkstream, FlatUnassigned } from "../hooks/useSurfacing";
 import type { JoinToast } from "../hooks/useDeepLink";
 import { useWidgetState } from "../hooks/useWidgetState";
 import { useFirstLaunchTooltip } from "../hooks/useFirstLaunchTooltip";
@@ -15,6 +17,10 @@ interface WidgetAppProps {
   error: string | null;
   joinToast: JoinToast | null;
   clearJoinToast: () => void;
+  allWorkstreams: FlatWorkstream[];
+  allUnassigned: FlatUnassigned[];
+  reportStatus: (hexcoreId: string, workstreamId: string, action: WorkstreamStatusAction) => void;
+  statusActions: Map<string, StatusActionState>;
 }
 
 export function WidgetApp({ joinToast, clearJoinToast, ...props }: WidgetAppProps) {

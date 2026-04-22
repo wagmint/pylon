@@ -2,15 +2,18 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { DashboardState } from "../lib/types";
+import type { SurfacingState } from "../lib/surfacing-types";
 
 const SSE_URL = "http://localhost:7433/api/dashboard/stream";
 const SNAPSHOT_URL = "http://localhost:7433/api/dashboard";
+const SURFACING_URL = "http://localhost:7433/api/surfaced-workstreams";
 const INITIAL_RETRY_MS = 2000;
 const MAX_RETRY_MS = 10000;
 const STALE_THRESHOLD_MS = 12_000; // 12s = missed 2+ heartbeats (server sends every 5s)
 
 interface UseHexcoreSSEResult {
   state: DashboardState | null;
+  surfacing: SurfacingState | null;
   loading: boolean;
   error: string | null;
   connected: boolean;
@@ -18,6 +21,7 @@ interface UseHexcoreSSEResult {
 
 export function useHexcoreSSE(): UseHexcoreSSEResult {
   const [state, setState] = useState<DashboardState | null>(null);
+  const [surfacing, setSurfacing] = useState<SurfacingState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -75,6 +79,16 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
       lastMessageTime.current = Date.now();
     });
 
+    es.addEventListener("surfacing", (e) => {
+      try {
+        lastMessageTime.current = Date.now();
+        const data: SurfacingState = JSON.parse(e.data);
+        setSurfacing(data);
+      } catch {
+        // Surfacing parse error — non-critical
+      }
+    });
+
     es.onopen = () => {
       setConnected(true);
       setError(null);
@@ -108,7 +122,11 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
     refreshInFlight.current = true;
 
     try {
-      const response = await fetch(SNAPSHOT_URL, { cache: "no-store" });
+      const [response, surfacingRes] = await Promise.all([
+        fetch(SNAPSHOT_URL, { cache: "no-store" }),
+        fetch(SURFACING_URL, { cache: "no-store" }).catch(() => null),
+      ]);
+
       if (!response.ok) {
         throw new Error(`Snapshot fetch failed: ${response.status}`);
       }
@@ -123,6 +141,12 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
       if (!hasReceivedData.current) {
         hasReceivedData.current = true;
         setLoading(false);
+      }
+
+      // Update surfacing if fetch succeeded
+      if (surfacingRes?.ok) {
+        const surfData = await surfacingRes.json() as SurfacingState;
+        if (mountedRef.current) setSurfacing(surfData);
       }
 
       reconnectNow();
@@ -194,5 +218,5 @@ export function useHexcoreSSE(): UseHexcoreSSEResult {
     };
   }, [connect, reconnectNow, refreshNow]);
 
-  return { state, loading, error, connected };
+  return { state, surfacing, loading, error, connected };
 }
