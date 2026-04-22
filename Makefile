@@ -22,6 +22,7 @@ help:
 	@echo "  make build            - Build all packages"
 	@echo "  make prepare-menubar  - Stage resources for menubar Tauri build/dev"
 	@echo "  make dev-server       - Start server in dev mode (hot-reload)"
+	@echo "  make dev-clean        - Quit menubar, clear server owner, then run npm dev"
 	@echo "  make dev-menubar      - Build debug .app bundle (registers deep links)"
 	@echo "  make open-menubar     - Launch the debug .app"
 	@echo "  make test-deeplink    - Test hexdeck:// deep link"
@@ -140,6 +141,29 @@ prepare-menubar:
 dev-server:
 	@lsof -ti :$(API_PORT) | xargs -r kill 2>/dev/null || true
 	cd packages/server && $(NPX) tsx watch src/server/main.ts
+
+# Dev: reset the menubar/server race before starting the full dev stack.
+# The menubar app auto-spawns its bundled server when :7433 is down, so quit it
+# before clearing the server owner and launching the hot-reload dev server.
+.PHONY: dev-clean
+dev-clean:
+	@osascript -e 'tell application "Hexdeck" to quit' >/dev/null 2>&1 || true
+	@sleep 1
+	@if [ -f "$(PID_FILE)" ]; then \
+		pid=$$(node -e 'const fs = require("fs"); try { const pid = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).pid; if (Number.isInteger(pid)) console.log(pid); } catch {}' "$(PID_FILE)"); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			echo "Stopping existing Hexdeck owner PID $$pid"; \
+			kill "$$pid" 2>/dev/null || true; \
+			sleep 1; \
+			if kill -0 "$$pid" 2>/dev/null; then \
+				echo "Force killing Hexdeck owner PID $$pid"; \
+				kill -9 "$$pid" 2>/dev/null || true; \
+			fi; \
+		fi; \
+	fi
+	@lsof -ti :$(API_PORT) | xargs -r kill 2>/dev/null || true
+	@rm -f "$(PID_FILE)" "$(STATE_LOCK)"
+	$(NPM) run dev
 
 # Dev: build menubar debug .app bundle (registers URL schemes with macOS)
 .PHONY: dev-menubar

@@ -9,6 +9,7 @@ import type {
   Workstream,
 } from "../types/index.js";
 import { computeTurnCost } from "../core/pricing.js";
+import { getLastKnownBranch } from "../core/git-state.js";
 
 export type IntentEventSource = "claude" | "codex";
 export type IntentEventType =
@@ -144,8 +145,9 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 }
 
 function buildAgentSnapshotEvents(agent: Agent): NormalizedIntentEvent[] {
+  const gitBranch = getLastKnownBranch(agent.projectPath);
   return [{
-    eventId: makeEventId(["session-updated", agent.sessionId, agent.status, hashText(agent.currentTask || "")]),
+    eventId: makeEventId(["session-updated", agent.sessionId, agent.status, gitBranch ?? "no-branch", hashText(agent.currentTask || "")]),
     schemaVersion: "v1",
     source: agent.agentType,
     operatorId: agent.operatorId,
@@ -156,6 +158,7 @@ function buildAgentSnapshotEvents(agent: Agent): NormalizedIntentEvent[] {
     payload: {
       label: agent.label,
       activityStatus: agent.isActive ? "active" : "idle",
+      ...(gitBranch ? { gitBranch } : {}),
     },
     provenance: {
       signalType: "inferred",
