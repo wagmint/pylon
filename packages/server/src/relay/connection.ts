@@ -9,6 +9,9 @@ import type {
   GitProjectState,
   ServerMessage,
   RelayCollision,
+  SuggestionPayload,
+  SuggestionAckMessage,
+  SuggestionResponseMessage,
 } from "./types.js";
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
@@ -35,6 +38,15 @@ export interface RelayCollisionAlert {
 /** Callback for incoming collision alerts */
 export type OnCollisionAlerts = (hexcoreId: string, collisions: RelayCollisionAlert[]) => void;
 
+/** Callback for incoming workstream suggestions */
+export type OnSuggestions = (hexcoreId: string, suggestions: SuggestionPayload[]) => void;
+
+/** Callback for cancelled suggestions */
+export type OnSuggestionsCancelled = (hexcoreId: string, suggestionIds: string[]) => void;
+
+/** Callback for suggestion resolution confirmations */
+export type OnSuggestionResolved = (hexcoreId: string, suggestionId: string, ok: boolean, reason?: string) => void;
+
 export class RelayConnection {
   readonly hexcoreId: string;
 
@@ -44,6 +56,9 @@ export class RelayConnection {
   private relayClientSecret: string;
   private onTokenRefreshed: OnTokenRefreshed | null;
   private onCollisionAlerts: OnCollisionAlerts | null;
+  private onSuggestions: OnSuggestions | null;
+  private onSuggestionsCancelled: OnSuggestionsCancelled | null;
+  private onSuggestionResolved: OnSuggestionResolved | null;
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -64,6 +79,9 @@ export class RelayConnection {
     relayClientSecret: string = "",
     onTokenRefreshed: OnTokenRefreshed | null = null,
     onCollisionAlerts: OnCollisionAlerts | null = null,
+    onSuggestions: OnSuggestions | null = null,
+    onSuggestionsCancelled: OnSuggestionsCancelled | null = null,
+    onSuggestionResolved: OnSuggestionResolved | null = null,
   ) {
     this.hexcoreId = hexcoreId;
     this.wsUrl = wsUrl;
@@ -72,6 +90,9 @@ export class RelayConnection {
     this.relayClientSecret = relayClientSecret;
     this.onTokenRefreshed = onTokenRefreshed;
     this.onCollisionAlerts = onCollisionAlerts;
+    this.onSuggestions = onSuggestions;
+    this.onSuggestionsCancelled = onSuggestionsCancelled;
+    this.onSuggestionResolved = onSuggestionResolved;
   }
 
   get isConnected(): boolean {
@@ -128,6 +149,17 @@ export class RelayConnection {
     if (!this.isConnected) return;
     const msg: GitStateMessage = { type: "git_state", projects };
     this.send(msg);
+  }
+
+  sendSuggestionAck(suggestionIds: string[]): void {
+    if (!this.isConnected) return;
+    const msg: SuggestionAckMessage = { type: "suggestion_ack", suggestionIds };
+    this.send(msg);
+  }
+
+  sendSuggestionResponse(response: SuggestionResponseMessage): void {
+    if (!this.isConnected) return;
+    this.send(response);
   }
 
   // ─── Internal ───────────────────────────────────────────────────────────
@@ -191,6 +223,21 @@ export class RelayConnection {
             if (crossOpCollisions.length > 0) {
               this.onCollisionAlerts(this.hexcoreId, crossOpCollisions);
             }
+          }
+        } else if (msg.type === "workstream_suggestions" && this.onSuggestions) {
+          const sugMsg = msg as { suggestions?: SuggestionPayload[] };
+          if (sugMsg.suggestions && sugMsg.suggestions.length > 0) {
+            this.onSuggestions(this.hexcoreId, sugMsg.suggestions);
+          }
+        } else if (msg.type === "suggestion_cancelled" && this.onSuggestionsCancelled) {
+          const cancelMsg = msg as { suggestionIds?: string[] };
+          if (cancelMsg.suggestionIds && cancelMsg.suggestionIds.length > 0) {
+            this.onSuggestionsCancelled(this.hexcoreId, cancelMsg.suggestionIds);
+          }
+        } else if (msg.type === "suggestion_resolved" && this.onSuggestionResolved) {
+          const resMsg = msg as { suggestionId?: string; ok?: boolean; reason?: string };
+          if (resMsg.suggestionId != null && resMsg.ok != null) {
+            this.onSuggestionResolved(this.hexcoreId, resMsg.suggestionId, resMsg.ok, resMsg.reason);
           }
         }
       } catch {
