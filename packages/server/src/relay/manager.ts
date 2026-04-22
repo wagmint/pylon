@@ -9,7 +9,8 @@ import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { pollGitState } from "../core/git-state.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
-import type { RelayTarget } from "./types.js";
+import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage } from "./types.js";
+import { suggestionStore } from "./suggestion-store.js";
 
 const INTENT_BATCH_SIZE = 100;
 const INTENT_FLUSH_INTERVAL_MS = 2_000;
@@ -102,6 +103,22 @@ class RelayManager {
     if (conn) {
       conn.sendCollisionAck(collisionId, action);
     }
+  }
+
+  /** Send a suggestion response to hexcore. Keeps suggestion locally until hexcore confirms. */
+  respondToSuggestion(hexcoreId: string, response: SuggestionResponseMessage): boolean {
+    const conn = this.connections.get(hexcoreId);
+    if (!conn?.isConnected) return false;
+    conn.sendSuggestionResponse(response);
+    suggestionStore.markResponded(response.suggestionId);
+    return true;
+  }
+
+  /** Find the hexcoreId for a suggestion from the store. */
+  findHexcoreForSuggestion(suggestionId: string): string | null {
+    const stored = suggestionStore.getById(suggestionId);
+    if (!stored) return null;
+    return stored.hexcoreId;
   }
 
   /** Add or update a relay target from parsed connect link fields. */
@@ -254,6 +271,40 @@ class RelayManager {
 
   // ─── Internal ───────────────────────────────────────────────────────────
 
+  /** Store received suggestions and send ack back to hexcore. */
+  private handleSuggestions(hexcoreId: string, suggestions: SuggestionPayload[]): void {
+    const ids: string[] = [];
+    for (const suggestion of suggestions) {
+      suggestionStore.upsert(hexcoreId, suggestion);
+      ids.push(suggestion.id);
+    }
+
+    // Send acknowledgment back
+    const conn = this.connections.get(hexcoreId);
+    if (conn?.isConnected) {
+      conn.sendSuggestionAck(ids);
+    }
+
+    console.log(`[relay] Received ${suggestions.length} suggestions from ${hexcoreId}`);
+  }
+
+  /** Remove cancelled suggestions from local store. */
+  private handleSuggestionsCancelled(hexcoreId: string, suggestionIds: string[]): void {
+    suggestionStore.removeMany(suggestionIds);
+    console.log(`[relay] ${suggestionIds.length} suggestions cancelled from ${hexcoreId}`);
+  }
+
+  /** Handle hexcore confirmation of a suggestion response. */
+  private handleSuggestionResolved(hexcoreId: string, suggestionId: string, ok: boolean, reason?: string): void {
+    if (ok) {
+      suggestionStore.remove(suggestionId);
+      console.log(`[relay] Suggestion ${suggestionId} resolved successfully`);
+    } else {
+      suggestionStore.clearResponded(suggestionId);
+      console.log(`[relay] Suggestion ${suggestionId} response failed: ${reason ?? 'unknown'}, unlocked for retry`);
+    }
+  }
+
   /** Persist a refreshed access token back to relay.json */
   private handleTokenRefreshed(hexcoreId: string, newToken: string): void {
     const config = loadRelayConfig();
@@ -294,6 +345,9 @@ class RelayManager {
           target.relayClientSecret,
           this.handleTokenRefreshed.bind(this),
           this.collisionAlertCallback,
+          this.handleSuggestions.bind(this),
+          this.handleSuggestionsCancelled.bind(this),
+          this.handleSuggestionResolved.bind(this),
         );
         this.connections.set(target.hexcoreId, conn);
         conn.connect();

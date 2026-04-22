@@ -201,7 +201,20 @@ export interface GitStateMessage {
   projects: GitProjectState[];
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage;
+export interface SuggestionAckMessage {
+  type: "suggestion_ack";
+  suggestionIds: string[];
+}
+
+export interface SuggestionResponseMessage {
+  type: "suggestion_response";
+  suggestionId: string;
+  action: "accepted" | "rejected" | "edited";
+  editedWorkstreamId?: string;
+  editedLabel?: string;
+}
+
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {
@@ -219,7 +232,46 @@ export interface MergedStateMessage {
   state: unknown;
 }
 
-export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage;
+export interface SuggestionPayload {
+  id: string;
+  workstreamId: string;
+  suggestedWorkstreamId: string | null;
+  suggestedLabel: string | null;
+  ambiguity: "single_match" | "multiple_matches" | "new_workstream";
+  matchingSignals: { signal: string; confidence: string; workstreamTitle?: string }[];
+  decisionReason: string;
+  context: {
+    branch: string | null;
+    repo: string | null;
+    filesTouched: string[];
+    planTitle: string | null;
+    durationMs: number | null;
+    commitCount: number;
+    sessionIds: string[];
+  };
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface WorkstreamSuggestionsMessage {
+  type: "workstream_suggestions";
+  suggestions: SuggestionPayload[];
+}
+
+export interface SuggestionCancelledMessage {
+  type: "suggestion_cancelled";
+  suggestionIds: string[];
+}
+
+export interface SuggestionResolvedMessage {
+  type: "suggestion_resolved";
+  suggestionId: string;
+  ok: boolean;
+  action: "accepted" | "rejected" | "edited";
+  reason?: string;
+}
+
+export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage;
 
 // ─── Relay Config Types ─────────────────────────────────────────────────────
 

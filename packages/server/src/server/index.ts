@@ -11,6 +11,7 @@ import { buildDashboardState, buildDashboardSnapshot } from "../core/dashboard.j
 import { toProviderSessionRef } from "../providers/index.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
+import { suggestionStore } from "../relay/suggestion-store.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { syncHexdeckToRelayTarget } from "../relay/hexdeck-sync.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -446,6 +447,78 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     const id = base.slice(0, -".jsonl".length);
     return id.length > 0 ? id : null;
   }
+
+  // ─── Suggestion API Routes ──────────────────────────────────────────────────
+
+  /** List suggestions from connected hexcores. ?pending=true filters to unresponded only. */
+  app.get("/api/suggestions", (c) => {
+    const pendingOnly = c.req.query("pending") === "true";
+    const items = pendingOnly ? suggestionStore.getPending() : suggestionStore.getAll();
+    return c.json({
+      count: items.length,
+      suggestions: items.map((s) => ({
+        hexcoreId: s.hexcoreId,
+        respondedAt: s.respondedAt,
+        ...s.suggestion,
+      })),
+    });
+  });
+
+  /** Respond to a suggestion (accept/reject/edit) */
+  app.post("/api/suggestions/:id/respond", async (c) => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    try {
+      const { id } = c.req.param();
+      if (!UUID_RE.test(id)) {
+        return c.json({ ok: false, reason: "Invalid suggestion ID" }, 400);
+      }
+
+      const body = await c.req.json<{ action?: string; editedWorkstreamId?: string; editedLabel?: string }>();
+      const action = body.action;
+
+      if (action !== "accepted" && action !== "rejected" && action !== "edited") {
+        return c.json({ ok: false, reason: "Invalid action — must be 'accepted', 'rejected', or 'edited'" }, 400);
+      }
+
+      if (body.editedWorkstreamId !== undefined && !UUID_RE.test(body.editedWorkstreamId)) {
+        return c.json({ ok: false, reason: "Invalid editedWorkstreamId" }, 400);
+      }
+
+      if (body.editedLabel !== undefined) {
+        const trimmed = body.editedLabel.trim();
+        if (trimmed.length === 0 || trimmed.length > 200) {
+          return c.json({ ok: false, reason: "editedLabel must be 1-200 characters" }, 400);
+        }
+        body.editedLabel = trimmed;
+      }
+
+      const stored = suggestionStore.getById(id);
+      if (!stored) {
+        return c.json({ ok: false, reason: "Suggestion not found" }, 404);
+      }
+
+      if (stored.respondedAt) {
+        return c.json({ ok: false, reason: "Already responded — awaiting hexcore confirmation" }, 409);
+      }
+
+      const sent = relayManager.respondToSuggestion(stored.hexcoreId, {
+        type: "suggestion_response",
+        suggestionId: id,
+        action,
+        editedWorkstreamId: body.editedWorkstreamId,
+        editedLabel: body.editedLabel,
+      });
+
+      if (!sent) {
+        return c.json({ ok: false, reason: "Failed to send response to hexcore" }, 503);
+      }
+
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ ok: false, reason: "Invalid JSON" }, 400);
+    }
+  });
 
   // ─── Relay API Routes ─────────────────────────────────────────────────────
 
