@@ -27,6 +27,9 @@ export type RelayConnectionStatus = "connected" | "connecting" | "disconnected" 
 /** Callback to persist refreshed token back to config */
 export type OnTokenRefreshed = (hexcoreId: string, newToken: string) => void;
 
+/** Callback when WS auth succeeds — safe to resume HTTP calls */
+export type OnAuthOk = (hexcoreId: string) => void;
+
 /** Cross-operator collision alert from relay merged_state */
 export interface RelayCollisionAlert {
   id: string;
@@ -64,6 +67,7 @@ export class RelayConnection {
   private relayClientId: string;
   private relayClientSecret: string;
   private onTokenRefreshed: OnTokenRefreshed | null;
+  private onAuthOk: OnAuthOk | null;
   private onCollisionAlerts: OnCollisionAlerts | null;
   private onSuggestions: OnSuggestions | null;
   private onSuggestionsCancelled: OnSuggestionsCancelled | null;
@@ -89,6 +93,7 @@ export class RelayConnection {
     relayClientId: string = "",
     relayClientSecret: string = "",
     onTokenRefreshed: OnTokenRefreshed | null = null,
+    onAuthOk: OnAuthOk | null = null,
     onCollisionAlerts: OnCollisionAlerts | null = null,
     onSuggestions: OnSuggestions | null = null,
     onSuggestionsCancelled: OnSuggestionsCancelled | null = null,
@@ -102,6 +107,7 @@ export class RelayConnection {
     this.relayClientId = relayClientId;
     this.relayClientSecret = relayClientSecret;
     this.onTokenRefreshed = onTokenRefreshed;
+    this.onAuthOk = onAuthOk;
     this.onCollisionAlerts = onCollisionAlerts;
     this.onSuggestions = onSuggestions;
     this.onSuggestionsCancelled = onSuggestionsCancelled;
@@ -198,8 +204,6 @@ export class RelayConnection {
     }
 
     this.ws.on("open", () => {
-      this.reconnectAttempt = 0;
-
       // Send auth
       const authMsg: AuthMessage = {
         type: "auth",
@@ -223,7 +227,11 @@ export class RelayConnection {
         if (msg.type === "auth_ok") {
           this.authenticated = true;
           this.operatorId = msg.operatorId;
+          this.reconnectAttempt = 0;
           this.scheduleProactiveRefresh();
+          if (this.onAuthOk) {
+            this.onAuthOk(this.hexcoreId);
+          }
         } else if (msg.type === "auth_error") {
           const reason = (msg as { reason?: string; message?: string }).reason
             ?? (msg as { message?: string }).message ?? "unknown";
@@ -338,8 +346,9 @@ export class RelayConnection {
       }
 
       console.log(`[relay] Token refreshed for ${this.hexcoreId}, reconnecting`);
-      this.reconnectAttempt = 0;
-      this.doConnect();
+      // Close old socket before scheduling so its close event doesn't race
+      this.cleanup();
+      this.scheduleReconnect();
     } catch (err) {
       console.error(`[relay] Token refresh error for ${this.hexcoreId}:`, err);
       this.scheduleReconnect();
