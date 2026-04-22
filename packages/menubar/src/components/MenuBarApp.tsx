@@ -3,9 +3,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import type { DashboardState } from "../lib/types";
 import type { HexcoreAlert, TraySeverity } from "../lib/alerts";
+import type { StatusActionState, WorkstreamStatusAction } from "../lib/surfacing-types";
+import type { FlatWorkstream, FlatUnassigned } from "../hooks/useSurfacing";
 import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { StatusHeader } from "./StatusHeader";
 import { AlertList } from "./AlertList";
+import { MeSection } from "./MeSection";
 import { AgentList } from "./AgentList";
 import { JoinToast } from "./JoinToast";
 
@@ -18,6 +21,10 @@ interface MenuBarAppProps {
   error: string | null;
   joinToast: JoinToastType | null;
   clearJoinToast: () => void;
+  allWorkstreams: FlatWorkstream[];
+  allUnassigned: FlatUnassigned[];
+  reportStatus: (hexcoreId: string, workstreamId: string, action: WorkstreamStatusAction) => void;
+  statusActions: Map<string, StatusActionState>;
 }
 
 export function MenuBarApp({
@@ -29,6 +36,10 @@ export function MenuBarApp({
   error,
   joinToast,
   clearJoinToast,
+  allWorkstreams,
+  allUnassigned,
+  reportStatus,
+  statusActions,
 }: MenuBarAppProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
@@ -97,7 +108,16 @@ export function MenuBarApp({
         {!loading && state && (
           <>
             <AlertList alerts={alerts} />
-            {alerts.length > 0 && agents.length > 0 && (
+            {alerts.length > 0 && (allWorkstreams.length > 0 || allUnassigned.length > 0) && (
+              <div className="border-t border-dash-border" />
+            )}
+            <MeSection
+              allWorkstreams={allWorkstreams}
+              allUnassigned={allUnassigned}
+              statusActions={statusActions}
+              onReport={reportStatus}
+            />
+            {(allWorkstreams.length > 0 || allUnassigned.length > 0 || alerts.length > 0) && agents.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
             <AgentList agents={agents} />
