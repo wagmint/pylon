@@ -214,7 +214,13 @@ export interface SuggestionResponseMessage {
   editedLabel?: string;
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage;
+export interface WorkUnitStatusMessage {
+  type: "work_unit_status";
+  workstreamId: string;
+  status: "done" | "dropped";
+}
+
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | WorkUnitStatusMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {
@@ -271,7 +277,47 @@ export interface SuggestionResolvedMessage {
   reason?: string;
 }
 
-export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage;
+export interface SurfacedBranch {
+  repo: string;
+  branch: string;
+  state: string;
+  workUnitId: string;
+}
+
+export interface SurfacedWorkstream {
+  workstreamId: string;
+  title: string;
+  classification: string;
+  workState: string;
+  confirmed: boolean;
+  stable: boolean;
+  branches: SurfacedBranch[];
+  agentCount: number;
+  filesTouched: string[];
+}
+
+export interface SurfacedUnassigned {
+  repo: string;
+  branch: string;
+  state: string;
+  workUnitId: string;
+  hasFileChanges: boolean;
+}
+
+export interface SurfacedWorkstreamsMessage {
+  type: "surfaced_workstreams";
+  workstreams: SurfacedWorkstream[];
+  unassigned: SurfacedUnassigned[];
+}
+
+export interface WorkUnitStatusAckMessage {
+  type: "work_unit_status_ack";
+  workstreamId: string;
+  ok: boolean;
+  reason?: string;
+}
+
+export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage | SurfacedWorkstreamsMessage | WorkUnitStatusAckMessage;
 
 // ─── Relay Config Types ─────────────────────────────────────────────────────
 

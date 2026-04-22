@@ -9,8 +9,10 @@ import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { pollGitState } from "../core/git-state.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
-import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage } from "./types.js";
+import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedWorkstream, SurfacedUnassigned } from "./types.js";
 import { suggestionStore } from "./suggestion-store.js";
+import { surfacingStore } from "./surfacing-store.js";
+import { statusResultStore } from "./status-result-store.js";
 
 const INTENT_BATCH_SIZE = 100;
 const INTENT_FLUSH_INTERVAL_MS = 2_000;
@@ -120,6 +122,29 @@ class RelayManager {
     conn.sendSuggestionResponse(response);
     suggestionStore.markResponded(response.suggestionId);
     return true;
+  }
+
+  /** Send a work unit status (Done/Dropped) to hexcore for a workstream. */
+  reportWorkUnitStatus(hexcoreId: string, workstreamId: string, status: "done" | "dropped"): boolean {
+    const conn = this.connections.get(hexcoreId);
+    if (!conn?.isConnected) return false;
+    const sent = conn.sendWorkUnitStatus(workstreamId, status);
+    if (sent) {
+      statusResultStore.track(hexcoreId, workstreamId, status);
+    }
+    return sent;
+  }
+
+  /** Check pending/resolved status for a work unit status request. */
+  getWorkUnitStatusResult(hexcoreId: string, workstreamId: string): { pending: boolean; result?: { ok: boolean; reason?: string } } {
+    if (statusResultStore.isPending(hexcoreId, workstreamId)) {
+      return { pending: true };
+    }
+    const result = statusResultStore.getResult(hexcoreId, workstreamId);
+    if (result) {
+      return { pending: false, result: { ok: result.ok!, reason: result.reason } };
+    }
+    return { pending: false };
   }
 
   /** Find the hexcoreId for a suggestion from the store. */
@@ -302,6 +327,20 @@ class RelayManager {
     console.log(`[relay] ${suggestionIds.length} suggestions cancelled from ${hexcoreId}`);
   }
 
+  /** Resolve a pending work unit status request with the hexcore ack. */
+  private handleWorkUnitStatusAck(hexcoreId: string, workstreamId: string, ok: boolean, reason?: string): void {
+    statusResultStore.resolve(hexcoreId, workstreamId, ok, reason);
+    if (!ok) {
+      console.log(`[relay] Work unit status failed for ${workstreamId} in ${hexcoreId}: ${reason ?? "unknown"}`);
+    }
+  }
+
+  /** Store surfaced workstreams from hexcore. */
+  private handleSurfacedWorkstreams(hexcoreId: string, workstreams: SurfacedWorkstream[], unassigned: SurfacedUnassigned[]): void {
+    surfacingStore.upsert(hexcoreId, workstreams, unassigned);
+    console.log(`[relay] Received surfaced workstreams from ${hexcoreId}: ${workstreams.length} workstreams, ${unassigned.length} unassigned`);
+  }
+
   /** Handle hexcore confirmation of a suggestion response. */
   private handleSuggestionResolved(hexcoreId: string, suggestionId: string, ok: boolean, reason?: string): void {
     if (ok) {
@@ -364,6 +403,8 @@ class RelayManager {
           this.handleSuggestions.bind(this),
           this.handleSuggestionsCancelled.bind(this),
           this.handleSuggestionResolved.bind(this),
+          this.handleSurfacedWorkstreams.bind(this),
+          this.handleWorkUnitStatusAck.bind(this),
         );
         this.connections.set(target.hexcoreId, conn);
         conn.connect();

@@ -12,6 +12,7 @@ import { toProviderSessionRef } from "../providers/index.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { suggestionStore } from "../relay/suggestion-store.js";
+import { surfacingStore } from "../relay/surfacing-store.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { syncHexdeckToRelayTarget } from "../relay/hexdeck-sync.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -65,6 +66,7 @@ interface SSEClient {
 
 const clients = new Set<SSEClient>();
 let lastPushedJson = "";
+let lastSurfacingJson = "";
 let lastBroadcastTime = 0;
 let tickerInterval: ReturnType<typeof setInterval> | null = null;
 let sseMessageId = 0;
@@ -135,27 +137,51 @@ function startTicker() {
         // Relay (does its own diff check per connection)
         relayManager.onStateUpdate(rawState, snapshot.parsedSessions);
 
-        // SSE (existing logic)
+        // SSE — dashboard state
         const data = serializeState(rawState);
         const json = JSON.stringify(data);
-        if (json === lastPushedJson) {
-          // No state change — send heartbeat every 5s to keep connection alive
-          if (Date.now() - lastBroadcastTime >= 5000) {
-            lastBroadcastTime = Date.now();
-            for (const client of clients) {
-              client.stream.writeSSE({ event: "hb", data: "" }).catch(() => {});
-            }
+        let didBroadcast = false;
+
+        if (json !== lastPushedJson) {
+          lastPushedJson = json;
+          lastBroadcastTime = Date.now();
+          sseMessageId++;
+          const id = String(sseMessageId);
+          for (const client of clients) {
+            client.stream.writeSSE({ data: json, event: "state", id }).catch(() => {
+              // Client disconnected — will be cleaned up by onAbort
+            });
           }
-          return;
+          didBroadcast = true;
         }
-        lastPushedJson = json;
-        lastBroadcastTime = Date.now();
-        sseMessageId++;
-        const id = String(sseMessageId);
-        for (const client of clients) {
-          client.stream.writeSSE({ data: json, event: "state", id }).catch(() => {
-            // Client disconnected — will be cleaned up by onAbort
+
+        // SSE — surfaced workstreams (separate event type)
+        const surfacingData = surfacingStore.getAll();
+        const surfacingJson = JSON.stringify(surfacingData);
+        if (surfacingJson !== lastSurfacingJson) {
+          lastSurfacingJson = surfacingJson;
+          lastBroadcastTime = Date.now();
+          sseMessageId++;
+          const surfacingPayload = JSON.stringify({
+            hexcores: surfacingData.map((entry) => ({
+              hexcoreId: entry.hexcoreId,
+              workstreams: entry.workstreams,
+              unassigned: entry.unassigned,
+              receivedAt: entry.receivedAt,
+            })),
           });
+          for (const client of clients) {
+            client.stream.writeSSE({ data: surfacingPayload, event: "surfacing", id: String(sseMessageId) }).catch(() => {});
+          }
+          didBroadcast = true;
+        }
+
+        // Heartbeat if nothing was broadcast
+        if (!didBroadcast && Date.now() - lastBroadcastTime >= 5000) {
+          lastBroadcastTime = Date.now();
+          for (const client of clients) {
+            client.stream.writeSSE({ event: "hb", data: "" }).catch(() => {});
+          }
         }
       } catch (error) {
         console.error("[dashboard] ticker failed:", error);
@@ -252,6 +278,21 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       const json = JSON.stringify(data);
       sseMessageId++;
       await stream.writeSSE({ data: json, event: "state", id: String(sseMessageId) });
+
+      // Send current surfacing state immediately (if any)
+      const surfacingData = surfacingStore.getAll();
+      if (surfacingData.length > 0) {
+        const surfacingPayload = JSON.stringify({
+          hexcores: surfacingData.map((entry) => ({
+            hexcoreId: entry.hexcoreId,
+            workstreams: entry.workstreams,
+            unassigned: entry.unassigned,
+            receivedAt: entry.receivedAt,
+          })),
+        });
+        sseMessageId++;
+        await stream.writeSSE({ data: surfacingPayload, event: "surfacing", id: String(sseMessageId) });
+      }
 
       addClient(client);
 
@@ -546,6 +587,70 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     } catch {
       return c.json({ ok: false, reason: "Invalid JSON" }, 400);
     }
+  });
+
+  // ─── Surfaced Workstreams API Routes ─────────────────────────────────────
+
+  /** List surfaced workstreams from connected hexcores. */
+  app.get("/api/surfaced-workstreams", (c) => {
+    const hexcoreId = c.req.query("hexcoreId");
+    if (hexcoreId) {
+      const entry = surfacingStore.getByHexcore(hexcoreId);
+      if (!entry) {
+        return c.json({ workstreams: [], unassigned: [] });
+      }
+      return c.json({
+        workstreams: entry.workstreams,
+        unassigned: entry.unassigned,
+        receivedAt: entry.receivedAt,
+      });
+    }
+    const all = surfacingStore.getAll();
+    return c.json({
+      hexcores: all.map((entry) => ({
+        hexcoreId: entry.hexcoreId,
+        workstreams: entry.workstreams,
+        unassigned: entry.unassigned,
+        receivedAt: entry.receivedAt,
+      })),
+    });
+  });
+
+  /** Report work unit status (Done/Dropped) for a workstream. */
+  app.post("/api/surfaced-workstreams/:workstreamId/status", async (c) => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    try {
+      const { workstreamId } = c.req.param();
+      if (!UUID_RE.test(workstreamId)) {
+        return c.json({ ok: false, reason: "Invalid workstream ID" }, 400);
+      }
+      const body = await c.req.json<{ status?: string; hexcoreId?: string }>();
+      if (body.status !== "done" && body.status !== "dropped") {
+        return c.json({ ok: false, reason: "Invalid status — must be 'done' or 'dropped'" }, 400);
+      }
+      if (!body.hexcoreId || !UUID_RE.test(body.hexcoreId)) {
+        return c.json({ ok: false, reason: "Missing or invalid hexcoreId" }, 400);
+      }
+      const sent = relayManager.reportWorkUnitStatus(body.hexcoreId, workstreamId, body.status);
+      if (!sent) {
+        return c.json({ ok: false, reason: "Not connected to hexcore" }, 503);
+      }
+      return c.json({ ok: true, pending: true });
+    } catch {
+      return c.json({ ok: false, reason: "Invalid JSON" }, 400);
+    }
+  });
+
+  /** Check result of a pending work unit status request. */
+  app.get("/api/surfaced-workstreams/:workstreamId/status-result", (c) => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const { workstreamId } = c.req.param();
+    const hexcoreId = c.req.query("hexcoreId");
+    if (!hexcoreId || !UUID_RE.test(hexcoreId) || !UUID_RE.test(workstreamId)) {
+      return c.json({ error: "Missing or invalid hexcoreId/workstreamId" }, 400);
+    }
+    const status = relayManager.getWorkUnitStatusResult(hexcoreId, workstreamId);
+    return c.json(status);
   });
 
   // ─── Relay API Routes ─────────────────────────────────────────────────────
