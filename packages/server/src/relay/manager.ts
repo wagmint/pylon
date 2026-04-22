@@ -360,13 +360,16 @@ class RelayManager {
       target.token = newToken;
       saveRelayConfig(config);
     }
-    // Resume intent event flushing now that we have a fresh token
+  }
+
+  /** Called when WS auth succeeds — safe to resume HTTP calls with the current token. */
+  private handleAuthOk(hexcoreId: string): void {
     const intentState = this.pendingIntentFlushByTarget.get(hexcoreId);
     if (intentState?.authPaused) {
       intentState.authPaused = false;
       intentState.backoffMs = 0;
       intentState.backoffUntil = 0;
-      console.log(`[relay] token refreshed for ${hexcoreId}, resuming intent flush`);
+      console.log(`[relay] auth ok for ${hexcoreId}, resuming intent flush`);
     }
   }
 
@@ -399,6 +402,7 @@ class RelayManager {
           target.relayClientId,
           target.relayClientSecret,
           this.handleTokenRefreshed.bind(this),
+          this.handleAuthOk.bind(this),
           this.collisionAlertCallback,
           this.handleSuggestions.bind(this),
           this.handleSuggestionsCancelled.bind(this),
@@ -447,9 +451,15 @@ class RelayManager {
       }
 
       if (!state.flushTimer) {
+        const hexcoreId = target.hexcoreId;
         state.flushTimer = setTimeout(() => {
           state.flushTimer = null;
-          void this.flushIntentEvents(target, state);
+          // Re-read target from config to use the freshest token
+          const config = loadRelayConfig();
+          const freshTarget = config.targets.find((t) => t.hexcoreId === hexcoreId);
+          if (freshTarget) {
+            void this.flushIntentEvents(freshTarget, state);
+          }
         }, INTENT_FLUSH_INTERVAL_MS);
       }
     } catch {
