@@ -114,12 +114,17 @@ export default {
           from: { background: "var(--dash-green-dim)" },
           to: { background: "transparent" },
         },
+        "loading-slide": {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.3s ease-out",
         "dash-pulse": "dash-pulse 1.5s infinite",
         "conflict-flash": "conflict-flash 0.8s infinite",
         "flash-in": "flash-in 1.5s ease-out",
+        "loading-slide": "loading-slide 1s ease-in-out infinite",
       },
     },
   },

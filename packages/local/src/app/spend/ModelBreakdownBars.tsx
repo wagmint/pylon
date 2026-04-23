@@ -17,7 +17,7 @@ export function ModelBreakdownBars({ spend }: ModelBreakdownBarsProps) {
         By Model
       </h3>
       <div className="space-y-1.5">
-        {spend.buckets.map((bucket) => {
+        {spend.buckets.filter((b) => b.costUsd > 0).map((bucket) => {
           const pct = bucket.costUsd / totalCost;
           return (
             <div key={bucket.key} className="flex items-center gap-2">

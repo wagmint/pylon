@@ -44,18 +44,18 @@ export function useSpendMetrics(period: Period): SpendMetrics {
   const [trends, setTrends] = useState<TrendResult | null>(null);
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const trendsIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  const load = useCallback(async () => {
+  // Period-dependent data (sessions + spend)
+  const loadPeriodData = useCallback(async () => {
     const from = periodToFrom(period);
     try {
-      const [sessRes, spendRes, trendRes] = await Promise.all([
+      const [sessRes, spendRes] = await Promise.all([
         fetchSessions(from, 50),
         fetchSpend("model", from),
-        fetchTrends("cost", 14, "day"),
       ]);
       setSessions(sessRes);
       setSpend(spendRes);
-      setTrends(trendRes);
     } catch {
       // Keep stale data on error
     } finally {
@@ -65,10 +65,29 @@ export function useSpendMetrics(period: Period): SpendMetrics {
 
   useEffect(() => {
     setLoading(true);
-    load();
-    intervalRef.current = setInterval(load, REFRESH_MS);
+    loadPeriodData();
+    intervalRef.current = setInterval(loadPeriodData, REFRESH_MS);
     return () => clearInterval(intervalRef.current);
-  }, [load]);
+  }, [loadPeriodData]);
+
+  // Trends: period-independent, fetch once + refresh on interval
+  useEffect(() => {
+    let cancelled = false;
+    const loadTrends = async () => {
+      try {
+        const res = await fetchTrends("cost", 14, "day");
+        if (!cancelled) setTrends(res);
+      } catch {
+        // Keep stale data on error
+      }
+    };
+    loadTrends();
+    trendsIntervalRef.current = setInterval(loadTrends, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(trendsIntervalRef.current);
+    };
+  }, []);
 
   return { sessions, spend, trends, loading };
 }
