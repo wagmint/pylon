@@ -44,6 +44,10 @@ export interface SessionListItem {
   durationMs: number | null;
   totalCostUsd: number;
   totalTurns: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   totalCommits: number;
   outcome: string;
   isDeadEnd: boolean;

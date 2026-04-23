@@ -972,9 +972,13 @@ const MIGRATIONS: Migration[] = [
   {
     id: 14,
     name: "branch_registry_completion_signaled_at",
-    up: [
-      `ALTER TABLE branch_registry ADD COLUMN completion_signaled_at TEXT`,
-    ],
+    up: [],
+    afterSql: (database) => {
+      const columns = database.prepare(`PRAGMA table_info(branch_registry)`).all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "completion_signaled_at")) {
+        database.exec(`ALTER TABLE branch_registry ADD COLUMN completion_signaled_at TEXT`);
+      }
+    },
   },
 ];
 
