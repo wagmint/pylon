@@ -25,6 +25,8 @@ import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSourc
 import { reconcileOnStartup, reconcileSessionLifecycles } from "../storage/reconciliation.js";
 import { materializePendingSummaries, enrichPendingSummaries, classifyPendingSummaries } from "../storage/session-summaries.js";
 import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
+import { resolveDefaultBranch, detectMergeForBranch } from "../core/merge-detection.js";
+import { getMergeCheckCandidates, getStaleEligible, getUnsignaledCompletions, markComplete, markStale, markCompletionSignaled, archiveBranch, updateDefaultBranch, updateHeadHash, updateCommitCount, updateMergeCheckedAt } from "../storage/branch-registry.js";
 import type { DashboardState } from "../types/index.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -78,6 +80,8 @@ let storageSyncRunning = false;
 
 const RECONCILIATION_INTERVAL_MS = 30_000;
 const STORAGE_SYNC_INTERVAL_MS = 30_000;
+const MERGE_DETECTION_INTERVAL_MS = 60_000;
+const STALE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function startReconciliationInterval() {
   if (reconciliationInterval) return;
@@ -115,6 +119,104 @@ function stopStorageSyncInterval() {
     clearInterval(storageSyncInterval);
     storageSyncInterval = null;
   }
+}
+
+let mergeDetectionInterval: ReturnType<typeof setInterval> | null = null;
+let mergeDetectionRunning = false;
+
+function startMergeDetectionInterval() {
+  if (mergeDetectionInterval) return;
+  mergeDetectionInterval = setInterval(() => {
+    if (mergeDetectionRunning) return;
+    mergeDetectionRunning = true;
+    try {
+      const candidates = getMergeCheckCandidates();
+      for (const entry of candidates) {
+        try {
+          // Ensure default_branch is populated
+          let defaultBranch = entry.defaultBranch;
+          if (!defaultBranch) {
+            const resolved = resolveDefaultBranch(entry.repoRoot);
+            if (!resolved) continue;
+            defaultBranch = resolved;
+            updateDefaultBranch(entry.id, defaultBranch);
+          }
+
+          const result = detectMergeForBranch(entry, defaultBranch);
+
+          // Update head hash if we got one
+          if (result.headHash && result.headHash !== entry.lastHeadHash) {
+            updateHeadHash(entry.id, result.headHash);
+          }
+
+          // Update commit count if we got one
+          if (result.commitCount !== null && result.commitCount !== entry.commitCount) {
+            updateCommitCount(entry.id, result.commitCount);
+          }
+
+          updateMergeCheckedAt(entry.id);
+
+          if (result.merged) {
+            markComplete(entry.id, result.method, result.prNumber, result.prTitle);
+            // Attempt immediate signal — if it fails, retry loop below picks it up
+            try {
+              const sent = relayManager.sendBranchCompleted(entry.projectPath, {
+                branch: entry.branch,
+                method: result.method as "ancestry" | "pr_api",
+                headHash: result.headHash,
+                commitCount: result.commitCount ?? entry.commitCount,
+                prNumber: result.prNumber,
+                prTitle: result.prTitle,
+                operatorId: entry.operatorId ?? undefined,
+                workUnitId: entry.workUnitId ?? undefined,
+              });
+              if (sent) markCompletionSignaled(entry.id);
+            } catch { /* retry loop will catch it */ }
+          } else if (result.branchGone) {
+            archiveBranch(entry.id);
+          }
+        } catch (err) {
+          console.error(`[merge-detection] error checking branch #${entry.id} (${entry.branch}):`, err);
+        }
+      }
+
+      // Stale sweep: mark branches with no activity for 7+ days as stale
+      try {
+        const staleEntries = getStaleEligible(STALE_TTL_MS);
+        for (const entry of staleEntries) {
+          markStale(entry.id);
+        }
+      } catch (err) {
+        console.error("[merge-detection] stale sweep failed:", err);
+      }
+
+      // Retry unsignaled completions (covers disconnects at the moment of detection)
+      try {
+        const unsignaled = getUnsignaledCompletions();
+        for (const entry of unsignaled) {
+          try {
+            const sent = relayManager.sendBranchCompleted(entry.projectPath, {
+              branch: entry.branch,
+              method: (entry.prNumber ? "pr_api" : "ancestry") as "ancestry" | "pr_api",
+              headHash: entry.lastHeadHash,
+              commitCount: entry.commitCount,
+              prNumber: entry.prNumber ?? undefined,
+              prTitle: entry.prTitle ?? undefined,
+              operatorId: entry.operatorId ?? undefined,
+              workUnitId: entry.workUnitId ?? undefined,
+            });
+            if (sent) markCompletionSignaled(entry.id);
+          } catch { /* will retry next tick */ }
+        }
+      } catch (err) {
+        console.error("[merge-detection] unsignaled retry failed:", err);
+      }
+    } catch (err) {
+      console.error("[merge-detection] loop failed:", err);
+    } finally {
+      mergeDetectionRunning = false;
+    }
+  }, MERGE_DETECTION_INTERVAL_MS);
 }
 
 function shouldTickerRun() {
@@ -1093,6 +1195,7 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
 
   startReconciliationInterval();
   startStorageSyncInterval();
+  startMergeDetectionInterval();
 
   return server;
 }

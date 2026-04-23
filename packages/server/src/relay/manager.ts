@@ -7,7 +7,8 @@ import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
 import { RelayApiError } from "./relay-error.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
-import { pollGitState } from "../core/git-state.js";
+import { pollGitState, resolveGitCwd } from "../core/git-state.js";
+import { isIgnoredBranch, upsertBranch } from "../storage/branch-registry.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
 import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedWorkstream, SurfacedUnassigned } from "./types.js";
@@ -131,6 +132,31 @@ class RelayManager {
     conn.sendSuggestionResponse(response);
     suggestionStore.markResponded(response.suggestionId);
     return true;
+  }
+
+  /** Send branch completion signal to all connected hexcores that track this project.
+   *  Returns true if at least one connection accepted the send. */
+  sendBranchCompleted(projectPath: string, payload: {
+    branch: string;
+    method: "ancestry" | "pr_api";
+    headHash: string | null;
+    commitCount: number;
+    prNumber?: number;
+    prTitle?: string;
+    operatorId?: string;
+    workUnitId?: string;
+  }): boolean {
+    const config = loadRelayConfig();
+    let sent = false;
+    for (const target of config.targets) {
+      if (!target.projects.includes(projectPath)) continue;
+      const conn = this.connections.get(target.hexcoreId);
+      if (!conn?.isConnected) continue;
+      if (conn.sendBranchCompleted({ projectPath, ...payload })) {
+        sent = true;
+      }
+    }
+    return sent;
   }
 
   /** Send a work unit status (Done/Dropped) to hexcore for a workstream. */
@@ -281,6 +307,16 @@ class RelayManager {
       }
     }
 
+    // Best-effort branch registry population from git state changes
+    try {
+      for (const g of gitChanges) {
+        if (isIgnoredBranch(g.branch)) continue;
+        const repoRoot = resolveGitCwd(g.projectPath);
+        if (!repoRoot) continue;
+        upsertBranch({ projectPath: g.projectPath, repoRoot, branch: g.branch, headHash: g.headHash });
+      }
+    } catch { /* best-effort — never break relay path */ }
+
     for (const target of config.targets) {
       if (target.projects.length === 0) continue;
 
@@ -349,6 +385,24 @@ class RelayManager {
   private handleSurfacedWorkstreams(hexcoreId: string, workstreams: SurfacedWorkstream[], unassigned: SurfacedUnassigned[]): void {
     surfacingStore.upsert(hexcoreId, workstreams, unassigned);
     console.log(`[relay] Received surfaced workstreams from ${hexcoreId}: ${workstreams.length} workstreams, ${unassigned.length} unassigned`);
+
+    // Best-effort branch registry population from surfaced workstream data
+    try {
+      for (const ws of workstreams) {
+        for (const b of ws.branches) {
+          if (isIgnoredBranch(b.branch)) continue;
+          const repoRoot = resolveGitCwd(b.repo);
+          if (!repoRoot) continue;
+          upsertBranch({ projectPath: b.repo, repoRoot, branch: b.branch, hexcoreId, workUnitId: b.workUnitId });
+        }
+      }
+      for (const u of unassigned) {
+        if (isIgnoredBranch(u.branch)) continue;
+        const repoRoot = resolveGitCwd(u.repo);
+        if (!repoRoot) continue;
+        upsertBranch({ projectPath: u.repo, repoRoot, branch: u.branch, hexcoreId, workUnitId: u.workUnitId });
+      }
+    } catch { /* best-effort — never break relay path */ }
   }
 
   /** Handle hexcore confirmation of a suggestion response. */

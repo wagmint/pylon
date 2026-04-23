@@ -937,6 +937,38 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_session_model_costs_model_family ON session_model_costs(model_family)`,
     ],
   },
+  {
+    id: 13,
+    name: "branch_registry",
+    up: [
+      `
+      CREATE TABLE IF NOT EXISTS branch_registry (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_path TEXT NOT NULL,
+        repo_root TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        default_branch TEXT,
+        state TEXT NOT NULL DEFAULT 'active',
+        first_seen_at TEXT NOT NULL,
+        last_activity_at TEXT NOT NULL,
+        last_head_hash TEXT,
+        commit_count INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        archived_at TEXT,
+        merge_checked_at TEXT,
+        pr_number INTEGER,
+        pr_title TEXT,
+        hexcore_id TEXT,
+        operator_id TEXT,
+        work_unit_id TEXT,
+        completion_signaled_at TEXT,
+        UNIQUE(project_path, branch)
+      )
+      `,
+      `CREATE INDEX IF NOT EXISTS idx_branch_registry_state ON branch_registry(state)`,
+      `CREATE INDEX IF NOT EXISTS idx_branch_registry_project_path ON branch_registry(project_path)`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
