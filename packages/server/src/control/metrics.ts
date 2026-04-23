@@ -66,6 +66,10 @@ export interface SessionListItem {
   durationMs: number | null;
   totalCostUsd: number;
   totalTurns: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   totalCommits: number;
   outcome: string;
   isDeadEnd: boolean;
@@ -345,6 +349,10 @@ export function querySessionList(params: SessionListParams): SessionListResult {
       duration_ms AS durationMs,
       total_cost_usd AS totalCostUsd,
       total_turns AS totalTurns,
+      total_input_tokens AS totalInputTokens,
+      total_output_tokens AS totalOutputTokens,
+      total_cache_read_tokens AS totalCacheReadTokens,
+      total_cache_creation_tokens AS totalCacheCreationTokens,
       total_commits AS totalCommits,
       outcome,
       is_dead_end AS isDeadEnd
@@ -365,6 +373,10 @@ export function querySessionList(params: SessionListParams): SessionListResult {
     durationMs: number | null;
     totalCostUsd: number;
     totalTurns: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheCreationTokens: number;
     totalCommits: number;
     outcome: string;
     isDeadEnd: number;

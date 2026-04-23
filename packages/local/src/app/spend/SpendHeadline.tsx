@@ -20,8 +20,12 @@ export function SpendHeadline({ period, onPeriodChange, sessions, state }: Spend
   const totalCost = sessions?.sessions.reduce((sum, s) => sum + s.totalCostUsd, 0) ?? 0;
   const totalSessions = sessions?.total ?? 0;
   const totalTurns = sessions?.sessions.reduce((sum, s) => sum + s.totalTurns, 0) ?? 0;
+  const totalTokens = sessions?.sessions.reduce(
+    (sum, s) => sum + s.totalInputTokens + s.totalOutputTokens + s.totalCacheReadTokens + s.totalCacheCreationTokens,
+    0,
+  ) ?? 0;
 
-  const { activeAgents, totalTokens, totalCost: liveCost } = state.summary;
+  const { activeAgents, totalCost: liveCost } = state.summary;
 
   return (
     <div>

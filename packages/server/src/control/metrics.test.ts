@@ -403,6 +403,26 @@ describe("querySessionList", () => {
     expect(result.sessions.find((s) => s.sessionId === "s2")!.isDeadEnd).toBe(false);
   });
 
+  it("returns token totals for each session", async () => {
+    const mod = await setup();
+    const db = mod.getDb();
+
+    insertSummary(db, {
+      sessionId: "s1",
+      startedAt: "2026-04-10T10:00:00Z",
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      totalCacheReadTokens: 25,
+      totalCacheCreationTokens: 10,
+    });
+
+    const result = mod.querySessionList({ limit: 20, offset: 0 });
+    expect(result.sessions[0].totalInputTokens).toBe(100);
+    expect(result.sessions[0].totalOutputTokens).toBe(50);
+    expect(result.sessions[0].totalCacheReadTokens).toBe(25);
+    expect(result.sessions[0].totalCacheCreationTokens).toBe(10);
+  });
+
   it("returns empty result when no sessions match", async () => {
     const mod = await setup();
     const result = mod.querySessionList({ outcome: "productive", limit: 20, offset: 0 });
@@ -560,6 +580,10 @@ function insertSummary(
     startedAt: string;
     endedAt?: string;
     totalTurns?: number;
+    totalInputTokens?: number;
+    totalOutputTokens?: number;
+    totalCacheReadTokens?: number;
+    totalCacheCreationTokens?: number;
     totalCostUsd?: number;
     totalCommits?: number;
     totalErrors?: number;
@@ -594,7 +618,7 @@ function insertSummary(
       outcome, is_dead_end, dead_end_reason,
       workstream_id, files_changed, tools_used, summarized_at
     )
-    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 0, ?, 0, 0, 0, 0, ?, ?, ?, 0, ?, 'nominal', 0, NULL, 0, 0, ?, ?, ?, NULL, NULL, NULL, ?)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'nominal', 0, NULL, 0, 0, ?, ?, ?, NULL, NULL, NULL, ?)
   `).run(
     opts.sessionId,
     opts.provider ?? "claude",
@@ -604,6 +628,10 @@ function insertSummary(
     opts.startedAt,
     opts.endedAt ?? null,
     opts.totalTurns ?? 0,
+    opts.totalInputTokens ?? 0,
+    opts.totalOutputTokens ?? 0,
+    opts.totalCacheReadTokens ?? 0,
+    opts.totalCacheCreationTokens ?? 0,
     opts.totalCostUsd ?? 0,
     opts.totalCommits ?? 0,
     opts.totalErrors ?? 0,
