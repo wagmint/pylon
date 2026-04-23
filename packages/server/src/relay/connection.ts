@@ -15,6 +15,7 @@ import type {
   SurfacedWorkstream,
   SurfacedUnassigned,
   WorkUnitStatusMessage,
+  BranchCompletedMessage,
 } from "./types.js";
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
@@ -190,6 +191,13 @@ export class RelayConnection {
   sendWorkUnitStatus(workstreamId: string, status: "done" | "dropped"): boolean {
     if (!this.isConnected) return false;
     const msg: WorkUnitStatusMessage = { type: "work_unit_status", workstreamId, status };
+    this.send(msg);
+    return true;
+  }
+
+  sendBranchCompleted(payload: Omit<BranchCompletedMessage, "type">): boolean {
+    if (!this.isConnected) return false;
+    const msg: BranchCompletedMessage = { type: "branch_completed", ...payload };
     this.send(msg);
     return true;
   }

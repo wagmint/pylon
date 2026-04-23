@@ -29,7 +29,7 @@ const gitCwdCache = new Map<string, string | null>();
  *  2. Path is a parent of git repos (checks immediate children for .git)
  * Result is cached for the lifetime of the process.
  */
-function resolveGitCwd(projectPath: string): string | null {
+export function resolveGitCwd(projectPath: string): string | null {
   const cached = gitCwdCache.get(projectPath);
   if (cached !== undefined) return cached;
 
@@ -135,4 +135,11 @@ export function pollGitState(projectPaths: string[]): GitProjectState[] {
 /** Read the last-known branch for a project without running git. */
 export function getLastKnownBranch(projectPath: string): string | undefined {
   return lastKnown.get(projectPath)?.branch;
+}
+
+/** Read the last-known state (branch + hash) for a project without running git. */
+export function getLastKnownState(projectPath: string): { branch: string; headHash: string } | undefined {
+  const state = lastKnown.get(projectPath);
+  if (!state) return undefined;
+  return { branch: state.branch, headHash: state.headHash };
 }

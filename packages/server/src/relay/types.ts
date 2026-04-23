@@ -220,7 +220,20 @@ export interface WorkUnitStatusMessage {
   status: "done" | "dropped";
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | WorkUnitStatusMessage;
+export interface BranchCompletedMessage {
+  type: "branch_completed";
+  projectPath: string;
+  branch: string;
+  method: "ancestry" | "pr_api";
+  headHash: string | null;
+  commitCount: number;
+  prNumber?: number;
+  prTitle?: string;
+  operatorId?: string;
+  workUnitId?: string;
+}
+
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | WorkUnitStatusMessage | BranchCompletedMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {
