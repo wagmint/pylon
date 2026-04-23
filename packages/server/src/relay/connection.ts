@@ -12,9 +12,7 @@ import type {
   SuggestionPayload,
   SuggestionAckMessage,
   SuggestionResponseMessage,
-  SurfacedWorkstream,
-  SurfacedUnassigned,
-  WorkUnitStatusMessage,
+  SurfacedBranchCard,
   BranchCompletedMessage,
 } from "./types.js";
 
@@ -55,11 +53,8 @@ export type OnSuggestionsCancelled = (hexcoreId: string, suggestionIds: string[]
 /** Callback for suggestion resolution confirmations */
 export type OnSuggestionResolved = (hexcoreId: string, suggestionId: string, ok: boolean, reason?: string) => void;
 
-/** Callback for surfaced workstreams updates */
-export type OnSurfacedWorkstreams = (hexcoreId: string, workstreams: SurfacedWorkstream[], unassigned: SurfacedUnassigned[]) => void;
-
-/** Callback for work unit status ack from hexcore */
-export type OnWorkUnitStatusAck = (hexcoreId: string, workstreamId: string, ok: boolean, reason?: string) => void;
+/** Callback for surfaced branches updates */
+export type OnSurfacedBranches = (hexcoreId: string, branches: SurfacedBranchCard[]) => void;
 
 export class RelayConnection {
   readonly hexcoreId: string;
@@ -75,8 +70,7 @@ export class RelayConnection {
   private onSuggestions: OnSuggestions | null;
   private onSuggestionsCancelled: OnSuggestionsCancelled | null;
   private onSuggestionResolved: OnSuggestionResolved | null;
-  private onSurfacedWorkstreams: OnSurfacedWorkstreams | null;
-  private onWorkUnitStatusAck: OnWorkUnitStatusAck | null;
+  private onSurfacedBranches: OnSurfacedBranches | null;
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -102,8 +96,7 @@ export class RelayConnection {
     onSuggestions: OnSuggestions | null = null,
     onSuggestionsCancelled: OnSuggestionsCancelled | null = null,
     onSuggestionResolved: OnSuggestionResolved | null = null,
-    onSurfacedWorkstreams: OnSurfacedWorkstreams | null = null,
-    onWorkUnitStatusAck: OnWorkUnitStatusAck | null = null,
+    onSurfacedBranches: OnSurfacedBranches | null = null,
   ) {
     this.hexcoreId = hexcoreId;
     this.wsUrl = wsUrl;
@@ -117,8 +110,7 @@ export class RelayConnection {
     this.onSuggestions = onSuggestions;
     this.onSuggestionsCancelled = onSuggestionsCancelled;
     this.onSuggestionResolved = onSuggestionResolved;
-    this.onSurfacedWorkstreams = onSurfacedWorkstreams;
-    this.onWorkUnitStatusAck = onWorkUnitStatusAck;
+    this.onSurfacedBranches = onSurfacedBranches;
   }
 
   get isConnected(): boolean {
@@ -186,13 +178,6 @@ export class RelayConnection {
   sendSuggestionResponse(response: SuggestionResponseMessage): void {
     if (!this.isConnected) return;
     this.send(response);
-  }
-
-  sendWorkUnitStatus(workstreamId: string, status: "done" | "dropped"): boolean {
-    if (!this.isConnected) return false;
-    const msg: WorkUnitStatusMessage = { type: "work_unit_status", workstreamId, status };
-    this.send(msg);
-    return true;
   }
 
   sendBranchCompleted(payload: Omit<BranchCompletedMessage, "type">): boolean {
@@ -281,18 +266,12 @@ export class RelayConnection {
           if (resMsg.suggestionId != null && resMsg.ok != null) {
             this.onSuggestionResolved(this.hexcoreId, resMsg.suggestionId, resMsg.ok, resMsg.reason);
           }
-        } else if (msg.type === "surfaced_workstreams" && this.onSurfacedWorkstreams) {
-          const surfMsg = msg as { workstreams?: SurfacedWorkstream[]; unassigned?: SurfacedUnassigned[] };
-          this.onSurfacedWorkstreams(
+        } else if (msg.type === "surfaced_branches" && this.onSurfacedBranches) {
+          const surfMsg = msg as { branches?: SurfacedBranchCard[] };
+          this.onSurfacedBranches(
             this.hexcoreId,
-            surfMsg.workstreams ?? [],
-            surfMsg.unassigned ?? [],
+            surfMsg.branches ?? [],
           );
-        } else if (msg.type === "work_unit_status_ack" && this.onWorkUnitStatusAck) {
-          const ackMsg = msg as { workstreamId?: string; ok?: boolean; reason?: string };
-          if (ackMsg.workstreamId && ackMsg.ok != null) {
-            this.onWorkUnitStatusAck(this.hexcoreId, ackMsg.workstreamId, ackMsg.ok, ackMsg.reason);
-          }
         }
       } catch {
         // Ignore malformed messages

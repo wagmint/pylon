@@ -214,12 +214,6 @@ export interface SuggestionResponseMessage {
   editedLabel?: string;
 }
 
-export interface WorkUnitStatusMessage {
-  type: "work_unit_status";
-  workstreamId: string;
-  status: "done" | "dropped";
-}
-
 export interface BranchCompletedMessage {
   type: "branch_completed";
   projectPath: string;
@@ -233,7 +227,7 @@ export interface BranchCompletedMessage {
   workUnitId?: string;
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | WorkUnitStatusMessage | BranchCompletedMessage;
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | BranchCompletedMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {
@@ -323,14 +317,29 @@ export interface SurfacedWorkstreamsMessage {
   unassigned: SurfacedUnassigned[];
 }
 
-export interface WorkUnitStatusAckMessage {
-  type: "work_unit_status_ack";
-  workstreamId: string;
-  ok: boolean;
-  reason?: string;
+export interface SurfacedBranchCard {
+  workUnitId: string;
+  repo: string;
+  branch: string;
+  state: string;
+  commitCount: number;
+  filesTouched: string[];
+  sessionIds: string[];
+  completedAt: string | null;
+  archivedAt: string | null;
+  prNumber: number | null;
+  prTitle: string | null;
+  agentCount: number;
+  firstSeenAt: string;
+  lastActivityAt: string;
 }
 
-export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage | SurfacedWorkstreamsMessage | WorkUnitStatusAckMessage;
+export interface SurfacedBranchesMessage {
+  type: "surfaced_branches";
+  branches: SurfacedBranchCard[];
+}
+
+export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage | SurfacedWorkstreamsMessage | SurfacedBranchesMessage;
 
 // ─── Relay Config Types ─────────────────────────────────────────────────────
 
