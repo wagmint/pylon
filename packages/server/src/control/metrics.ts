@@ -61,6 +61,7 @@ export interface SessionListItem {
   operatorId: string | null;
   operatorName: string | null;
   projectPath: string;
+  gitBranch: string | null;
   startedAt: string;
   endedAt: string | null;
   durationMs: number | null;
@@ -344,6 +345,7 @@ export function querySessionList(params: SessionListParams): SessionListResult {
       operator_id AS operatorId,
       operator_name AS operatorName,
       project_path AS projectPath,
+      git_branch AS gitBranch,
       started_at AS startedAt,
       ended_at AS endedAt,
       duration_ms AS durationMs,
@@ -368,6 +370,7 @@ export function querySessionList(params: SessionListParams): SessionListResult {
     operatorId: string | null;
     operatorName: string | null;
     projectPath: string;
+    gitBranch: string | null;
     startedAt: string;
     endedAt: string | null;
     durationMs: number | null;

@@ -2,6 +2,7 @@ import { getDb, withTransaction } from "./db.js";
 import { detectSpinningFromStoredEvidence } from "../core/risk.js";
 import { loadOperatorConfig, getSelfName, operatorId } from "../core/config.js";
 import { classifySessionOutcome } from "../core/classification.js";
+import { getLastKnownBranch, resolveCurrentBranch } from "../core/git-state.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -140,13 +141,20 @@ export function materializeSessionSummary(sessionId: string): SessionSummaryRow 
   const errorRate = turnAgg.turnCount > 0 ? turnAgg.totalErrors / turnAgg.turnCount : 0;
   const summarizedAt = new Date().toISOString();
 
+  // Backfill git_branch from in-memory git state if the sessions row has none
+  const gitBranch = session.gitBranch ?? getLastKnownBranch(session.projectPath) ?? resolveCurrentBranch(session.projectPath);
+  if (gitBranch && !session.gitBranch) {
+    db.prepare(`UPDATE sessions SET git_branch = ? WHERE id = ? AND git_branch IS NULL`)
+      .run(gitBranch, sessionId);
+  }
+
   const summary: SessionSummaryRow = {
     sessionId,
     provider: session.sourceType,
     operatorId: null,
     operatorName: null,
     projectPath: session.projectPath,
-    gitBranch: session.gitBranch,
+    gitBranch,
     startedAt,
     endedAt,
     durationMs,
