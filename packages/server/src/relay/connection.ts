@@ -29,6 +29,7 @@ export type OnTokenRefreshed = (hexcoreId: string, newToken: string) => void;
 
 /** Callback when WS auth succeeds — safe to resume HTTP calls */
 export type OnAuthOk = (hexcoreId: string) => void;
+export type OnAuthExpired = (hexcoreId: string) => void;
 
 /** Cross-operator collision alert from relay merged_state */
 export interface RelayCollisionAlert {
@@ -68,6 +69,7 @@ export class RelayConnection {
   private relayClientSecret: string;
   private onTokenRefreshed: OnTokenRefreshed | null;
   private onAuthOk: OnAuthOk | null;
+  private onAuthExpired: OnAuthExpired | null;
   private onCollisionAlerts: OnCollisionAlerts | null;
   private onSuggestions: OnSuggestions | null;
   private onSuggestionsCancelled: OnSuggestionsCancelled | null;
@@ -94,6 +96,7 @@ export class RelayConnection {
     relayClientSecret: string = "",
     onTokenRefreshed: OnTokenRefreshed | null = null,
     onAuthOk: OnAuthOk | null = null,
+    onAuthExpired: OnAuthExpired | null = null,
     onCollisionAlerts: OnCollisionAlerts | null = null,
     onSuggestions: OnSuggestions | null = null,
     onSuggestionsCancelled: OnSuggestionsCancelled | null = null,
@@ -108,6 +111,7 @@ export class RelayConnection {
     this.relayClientSecret = relayClientSecret;
     this.onTokenRefreshed = onTokenRefreshed;
     this.onAuthOk = onAuthOk;
+    this.onAuthExpired = onAuthExpired;
     this.onCollisionAlerts = onCollisionAlerts;
     this.onSuggestions = onSuggestions;
     this.onSuggestionsCancelled = onSuggestionsCancelled;
@@ -421,5 +425,8 @@ export class RelayConnection {
   private enterAuthExpiredState(): void {
     this.authExpired = true;
     this.cleanup();
+    if (this.onAuthExpired) {
+      this.onAuthExpired(this.hexcoreId);
+    }
   }
 }

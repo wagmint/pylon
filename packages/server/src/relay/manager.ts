@@ -277,6 +277,7 @@ class RelayManager {
 
       const conn = this.connections.get(target.hexcoreId);
       if (!conn) continue;
+      if (conn.status === "auth_expired") continue;
 
       const state = transformToOperatorState(
         rawState,
@@ -373,6 +374,21 @@ class RelayManager {
     }
   }
 
+  /** Called when relay credentials are no longer valid and reconnect is required. */
+  private handleAuthExpired(hexcoreId: string): void {
+    const intentState = this.pendingIntentFlushByTarget.get(hexcoreId);
+    if (intentState) {
+      intentState.authPaused = true;
+      intentState.backoffMs = 0;
+      intentState.backoffUntil = 0;
+      if (intentState.flushTimer) {
+        clearTimeout(intentState.flushTimer);
+        intentState.flushTimer = null;
+      }
+    }
+    console.error(`[relay] auth expired for ${hexcoreId}, pausing intent flush until re-auth`);
+  }
+
   private syncConnections(): void {
     const config = loadRelayConfig();
     const targetIds = new Set(config.targets.map((t) => t.hexcoreId));
@@ -403,6 +419,7 @@ class RelayManager {
           target.relayClientSecret,
           this.handleTokenRefreshed.bind(this),
           this.handleAuthOk.bind(this),
+          this.handleAuthExpired.bind(this),
           this.collisionAlertCallback,
           this.handleSuggestions.bind(this),
           this.handleSuggestionsCancelled.bind(this),
