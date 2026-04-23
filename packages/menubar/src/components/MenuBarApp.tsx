@@ -7,7 +7,6 @@ import type { FlatBranch } from "../hooks/useSurfacing";
 import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { StatusHeader } from "./StatusHeader";
 import { AlertList } from "./AlertList";
-import { MeSection } from "./MeSection";
 import { AgentList } from "./AgentList";
 import { JoinToast } from "./JoinToast";
 
@@ -32,7 +31,6 @@ export function MenuBarApp({
   error,
   joinToast,
   clearJoinToast,
-  branches,
 }: MenuBarAppProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
@@ -101,11 +99,7 @@ export function MenuBarApp({
         {!loading && state && (
           <>
             <AlertList alerts={alerts} />
-            {alerts.length > 0 && branches.length > 0 && (
-              <div className="border-t border-dash-border" />
-            )}
-            <MeSection branches={branches} />
-            {(branches.length > 0 || alerts.length > 0) && agents.length > 0 && (
+            {alerts.length > 0 && agents.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
             <AgentList agents={agents} />

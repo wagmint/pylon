@@ -684,6 +684,26 @@ export function listSessionModelCosts(sessionId: string): SessionModelCostRow[] 
   `).all(sessionId) as SessionModelCostRow[];
 }
 
+// ─── Surfacing Backfill ──────────────────────────────────────────────────────
+
+/**
+ * Backfill git_branch on sessions and session_summaries using the
+ * session→branch mapping provided by hexcore surfacing data.
+ * Only updates rows where git_branch is currently NULL.
+ */
+export function backfillBranchFromSurfacing(sessionIds: string[], branch: string): void {
+  const db = getDb();
+  if (sessionIds.length === 0) return;
+
+  const placeholders = sessionIds.map(() => "?").join(", ");
+  db.prepare(
+    `UPDATE sessions SET git_branch = ? WHERE id IN (${placeholders}) AND git_branch IS NULL`,
+  ).run(branch, ...sessionIds);
+  db.prepare(
+    `UPDATE session_summaries SET git_branch = ? WHERE session_id IN (${placeholders}) AND git_branch IS NULL`,
+  ).run(branch, ...sessionIds);
+}
+
 // ─── Internal Helpers ───────────────────────────────────────────────────────
 
 /** Path-aware containment check: does filePath reside under dirPath? */

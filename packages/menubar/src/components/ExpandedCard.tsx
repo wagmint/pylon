@@ -7,7 +7,6 @@ import type { DashboardState } from "../lib/types";
 import type { FlatBranch } from "../hooks/useSurfacing";
 import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { AlertList } from "./AlertList";
-import { MeSection } from "./MeSection";
 import { AgentList } from "./AgentList";
 import { GlowHex } from "./GlowHex";
 import { ColorLegendPopover } from "./ColorLegendPopover";
@@ -36,7 +35,6 @@ export function ExpandedCard({
   onClose,
   joinToast,
   clearJoinToast,
-  branches,
 }: ExpandedCardProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
@@ -106,11 +104,7 @@ export function ExpandedCard({
         {!loading && state && (
           <>
             <AlertList alerts={alerts} />
-            {alerts.length > 0 && branches.length > 0 && (
-              <div className="border-t border-dash-border" />
-            )}
-            <MeSection branches={branches} />
-            {(branches.length > 0 || alerts.length > 0) && agents.length > 0 && (
+            {alerts.length > 0 && agents.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
             <AgentList agents={agents} />

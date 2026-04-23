@@ -56,9 +56,6 @@ export function MeSection({ branches }: MeSectionProps) {
   if (visibleBranches.length === 0 && archivedCount === 0) {
     return (
       <div className="px-3 py-2">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-dash-text-muted px-1">
-          Me
-        </span>
         <p className="text-[11px] text-dash-text-muted text-center py-3">
           No active branches
         </p>
@@ -68,13 +65,8 @@ export function MeSection({ branches }: MeSectionProps) {
 
   return (
     <div className="px-3 py-2">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-dash-text-muted px-1">
-        Me
-      </span>
-
       {groupedByRepo.map(([repo, items]) => (
-        <div key={repo} className="mt-1.5">
-          <p className="text-[10px] text-dash-text-dim px-1">{repoBasename(repo)}</p>
+        <div key={repo}>
           <div className="space-y-0.5">
             {items.map((b) => (
               <BranchCard key={b.workUnitId} branch={b} />

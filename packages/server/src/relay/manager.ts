@@ -9,6 +9,7 @@ import { RelayApiError } from "./relay-error.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { pollGitState, resolveGitCwd } from "../core/git-state.js";
 import { isIgnoredBranch, upsertBranch } from "../storage/branch-registry.js";
+import { backfillBranchFromSurfacing } from "../storage/session-summaries.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
 import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedBranchCard } from "./types.js";
@@ -354,13 +355,17 @@ class RelayManager {
     surfacingStore.upsert(hexcoreId, branches);
     console.log(`[relay] Received surfaced branches from ${hexcoreId}: ${branches.length} branches`);
 
-    // Best-effort branch registry population from surfaced branch data
+    // Best-effort branch registry + session backfill from surfaced branch data
     try {
       for (const b of branches) {
         if (isIgnoredBranch(b.branch)) continue;
         const repoRoot = resolveGitCwd(b.repo);
         if (!repoRoot) continue;
         upsertBranch({ projectPath: b.repo, repoRoot, branch: b.branch, hexcoreId, workUnitId: b.workUnitId });
+        // Backfill git_branch on sessions/summaries using hexcore's session→branch mapping
+        if (b.sessionIds.length > 0) {
+          backfillBranchFromSurfacing(b.sessionIds, b.branch);
+        }
       }
     } catch { /* best-effort — never break relay path */ }
   }
