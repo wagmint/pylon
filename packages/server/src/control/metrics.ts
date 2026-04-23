@@ -345,7 +345,10 @@ export function querySessionList(params: SessionListParams): SessionListResult {
       operator_id AS operatorId,
       operator_name AS operatorName,
       project_path AS projectPath,
-      git_branch AS gitBranch,
+      COALESCE(
+        session_summaries.git_branch,
+        (SELECT s.git_branch FROM sessions s WHERE s.id = session_summaries.session_id)
+      ) AS gitBranch,
       started_at AS startedAt,
       ended_at AS endedAt,
       duration_ms AS durationMs,
