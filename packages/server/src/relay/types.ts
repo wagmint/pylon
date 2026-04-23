@@ -201,19 +201,6 @@ export interface GitStateMessage {
   projects: GitProjectState[];
 }
 
-export interface SuggestionAckMessage {
-  type: "suggestion_ack";
-  suggestionIds: string[];
-}
-
-export interface SuggestionResponseMessage {
-  type: "suggestion_response";
-  suggestionId: string;
-  action: "accepted" | "rejected" | "edited";
-  editedWorkstreamId?: string;
-  editedLabel?: string;
-}
-
 export interface BranchCompletedMessage {
   type: "branch_completed";
   projectPath: string;
@@ -227,7 +214,7 @@ export interface BranchCompletedMessage {
   workUnitId?: string;
 }
 
-export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | SuggestionAckMessage | SuggestionResponseMessage | BranchCompletedMessage;
+export type ClientMessage = AuthMessage | StateUpdateMessage | HeartbeatMessage | CollisionAckMessage | GitStateMessage | BranchCompletedMessage;
 
 // Server → Client messages
 export interface AuthOkMessage {
@@ -245,76 +232,11 @@ export interface MergedStateMessage {
   state: unknown;
 }
 
-export interface SuggestionPayload {
-  id: string;
-  workstreamId: string;
-  suggestedWorkstreamId: string | null;
-  suggestedLabel: string | null;
-  ambiguity: "single_match" | "multiple_matches" | "new_workstream";
-  matchingSignals: { signal: string; confidence: string; workstreamTitle?: string }[];
-  decisionReason: string;
-  context: {
-    branch: string | null;
-    repo: string | null;
-    filesTouched: string[];
-    planTitle: string | null;
-    durationMs: number | null;
-    commitCount: number;
-    sessionIds: string[];
-  };
-  createdAt: string;
-  expiresAt: string;
-}
-
-export interface WorkstreamSuggestionsMessage {
-  type: "workstream_suggestions";
-  suggestions: SuggestionPayload[];
-}
-
-export interface SuggestionCancelledMessage {
-  type: "suggestion_cancelled";
-  suggestionIds: string[];
-}
-
-export interface SuggestionResolvedMessage {
-  type: "suggestion_resolved";
-  suggestionId: string;
-  ok: boolean;
-  action: "accepted" | "rejected" | "edited";
-  reason?: string;
-}
-
 export interface SurfacedBranch {
   repo: string;
   branch: string;
   state: string;
   workUnitId: string;
-}
-
-export interface SurfacedWorkstream {
-  workstreamId: string;
-  title: string;
-  classification: string;
-  workState: string;
-  confirmed: boolean;
-  stable: boolean;
-  branches: SurfacedBranch[];
-  agentCount: number;
-  filesTouched: string[];
-}
-
-export interface SurfacedUnassigned {
-  repo: string;
-  branch: string;
-  state: string;
-  workUnitId: string;
-  hasFileChanges: boolean;
-}
-
-export interface SurfacedWorkstreamsMessage {
-  type: "surfaced_workstreams";
-  workstreams: SurfacedWorkstream[];
-  unassigned: SurfacedUnassigned[];
 }
 
 export interface SurfacedBranchCard {
@@ -339,7 +261,7 @@ export interface SurfacedBranchesMessage {
   branches: SurfacedBranchCard[];
 }
 
-export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | WorkstreamSuggestionsMessage | SuggestionCancelledMessage | SuggestionResolvedMessage | SurfacedWorkstreamsMessage | SurfacedBranchesMessage;
+export type ServerMessage = AuthOkMessage | AuthErrorMessage | MergedStateMessage | SurfacedBranchesMessage;
 
 // ─── Relay Config Types ─────────────────────────────────────────────────────
 
