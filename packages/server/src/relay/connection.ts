@@ -9,9 +9,6 @@ import type {
   GitProjectState,
   ServerMessage,
   RelayCollision,
-  SuggestionPayload,
-  SuggestionAckMessage,
-  SuggestionResponseMessage,
   SurfacedBranchCard,
   BranchCompletedMessage,
 } from "./types.js";
@@ -44,15 +41,6 @@ export interface RelayCollisionAlert {
 /** Callback for incoming collision alerts */
 export type OnCollisionAlerts = (hexcoreId: string, collisions: RelayCollisionAlert[]) => void;
 
-/** Callback for incoming workstream suggestions */
-export type OnSuggestions = (hexcoreId: string, suggestions: SuggestionPayload[]) => void;
-
-/** Callback for cancelled suggestions */
-export type OnSuggestionsCancelled = (hexcoreId: string, suggestionIds: string[]) => void;
-
-/** Callback for suggestion resolution confirmations */
-export type OnSuggestionResolved = (hexcoreId: string, suggestionId: string, ok: boolean, reason?: string) => void;
-
 /** Callback for surfaced branches updates */
 export type OnSurfacedBranches = (hexcoreId: string, branches: SurfacedBranchCard[]) => void;
 
@@ -67,9 +55,6 @@ export class RelayConnection {
   private onAuthOk: OnAuthOk | null;
   private onAuthExpired: OnAuthExpired | null;
   private onCollisionAlerts: OnCollisionAlerts | null;
-  private onSuggestions: OnSuggestions | null;
-  private onSuggestionsCancelled: OnSuggestionsCancelled | null;
-  private onSuggestionResolved: OnSuggestionResolved | null;
   private onSurfacedBranches: OnSurfacedBranches | null;
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -93,9 +78,6 @@ export class RelayConnection {
     onAuthOk: OnAuthOk | null = null,
     onAuthExpired: OnAuthExpired | null = null,
     onCollisionAlerts: OnCollisionAlerts | null = null,
-    onSuggestions: OnSuggestions | null = null,
-    onSuggestionsCancelled: OnSuggestionsCancelled | null = null,
-    onSuggestionResolved: OnSuggestionResolved | null = null,
     onSurfacedBranches: OnSurfacedBranches | null = null,
   ) {
     this.hexcoreId = hexcoreId;
@@ -107,9 +89,6 @@ export class RelayConnection {
     this.onAuthOk = onAuthOk;
     this.onAuthExpired = onAuthExpired;
     this.onCollisionAlerts = onCollisionAlerts;
-    this.onSuggestions = onSuggestions;
-    this.onSuggestionsCancelled = onSuggestionsCancelled;
-    this.onSuggestionResolved = onSuggestionResolved;
     this.onSurfacedBranches = onSurfacedBranches;
   }
 
@@ -167,17 +146,6 @@ export class RelayConnection {
     if (!this.isConnected) return;
     const msg: GitStateMessage = { type: "git_state", projects };
     this.send(msg);
-  }
-
-  sendSuggestionAck(suggestionIds: string[]): void {
-    if (!this.isConnected) return;
-    const msg: SuggestionAckMessage = { type: "suggestion_ack", suggestionIds };
-    this.send(msg);
-  }
-
-  sendSuggestionResponse(response: SuggestionResponseMessage): void {
-    if (!this.isConnected) return;
-    this.send(response);
   }
 
   sendBranchCompleted(payload: Omit<BranchCompletedMessage, "type">): boolean {
@@ -250,21 +218,6 @@ export class RelayConnection {
             if (crossOpCollisions.length > 0) {
               this.onCollisionAlerts(this.hexcoreId, crossOpCollisions);
             }
-          }
-        } else if (msg.type === "workstream_suggestions" && this.onSuggestions) {
-          const sugMsg = msg as { suggestions?: SuggestionPayload[] };
-          if (sugMsg.suggestions && sugMsg.suggestions.length > 0) {
-            this.onSuggestions(this.hexcoreId, sugMsg.suggestions);
-          }
-        } else if (msg.type === "suggestion_cancelled" && this.onSuggestionsCancelled) {
-          const cancelMsg = msg as { suggestionIds?: string[] };
-          if (cancelMsg.suggestionIds && cancelMsg.suggestionIds.length > 0) {
-            this.onSuggestionsCancelled(this.hexcoreId, cancelMsg.suggestionIds);
-          }
-        } else if (msg.type === "suggestion_resolved" && this.onSuggestionResolved) {
-          const resMsg = msg as { suggestionId?: string; ok?: boolean; reason?: string };
-          if (resMsg.suggestionId != null && resMsg.ok != null) {
-            this.onSuggestionResolved(this.hexcoreId, resMsg.suggestionId, resMsg.ok, resMsg.reason);
           }
         } else if (msg.type === "surfaced_branches" && this.onSurfacedBranches) {
           const surfMsg = msg as { branches?: SurfacedBranchCard[] };

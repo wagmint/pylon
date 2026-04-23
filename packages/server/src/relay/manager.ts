@@ -12,8 +12,7 @@ import { isIgnoredBranch, upsertBranch } from "../storage/branch-registry.js";
 import { backfillBranchFromSurfacing } from "../storage/session-summaries.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
-import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedBranchCard } from "./types.js";
-import { suggestionStore } from "./suggestion-store.js";
+import type { RelayTarget, SurfacedBranchCard } from "./types.js";
 import { surfacingStore } from "./surfacing-store.js";
 
 const INTENT_BATCH_SIZE = 100;
@@ -125,15 +124,6 @@ class RelayManager {
     }
   }
 
-  /** Send a suggestion response to hexcore. Keeps suggestion locally until hexcore confirms. */
-  respondToSuggestion(hexcoreId: string, response: SuggestionResponseMessage): boolean {
-    const conn = this.connections.get(hexcoreId);
-    if (!conn?.isConnected) return false;
-    conn.sendSuggestionResponse(response);
-    suggestionStore.markResponded(response.suggestionId);
-    return true;
-  }
-
   /** Send branch completion signal to all connected hexcores that track this project.
    *  Returns true if at least one connection accepted the send. */
   sendBranchCompleted(projectPath: string, payload: {
@@ -157,13 +147,6 @@ class RelayManager {
       }
     }
     return sent;
-  }
-
-  /** Find the hexcoreId for a suggestion from the store. */
-  findHexcoreForSuggestion(suggestionId: string): string | null {
-    const stored = suggestionStore.getById(suggestionId);
-    if (!stored) return null;
-    return stored.hexcoreId;
   }
 
   /** Add or update a relay target from parsed connect link fields. */
@@ -327,29 +310,6 @@ class RelayManager {
 
   // ─── Internal ───────────────────────────────────────────────────────────
 
-  /** Store received suggestions and send ack back to hexcore. */
-  private handleSuggestions(hexcoreId: string, suggestions: SuggestionPayload[]): void {
-    const ids: string[] = [];
-    for (const suggestion of suggestions) {
-      suggestionStore.upsert(hexcoreId, suggestion);
-      ids.push(suggestion.id);
-    }
-
-    // Send acknowledgment back
-    const conn = this.connections.get(hexcoreId);
-    if (conn?.isConnected) {
-      conn.sendSuggestionAck(ids);
-    }
-
-    console.log(`[relay] Received ${suggestions.length} suggestions from ${hexcoreId}`);
-  }
-
-  /** Remove cancelled suggestions from local store. */
-  private handleSuggestionsCancelled(hexcoreId: string, suggestionIds: string[]): void {
-    suggestionStore.removeMany(suggestionIds);
-    console.log(`[relay] ${suggestionIds.length} suggestions cancelled from ${hexcoreId}`);
-  }
-
   /** Store surfaced branches from hexcore. */
   private handleSurfacedBranches(hexcoreId: string, branches: SurfacedBranchCard[]): void {
     surfacingStore.upsert(hexcoreId, branches);
@@ -368,17 +328,6 @@ class RelayManager {
         }
       }
     } catch { /* best-effort — never break relay path */ }
-  }
-
-  /** Handle hexcore confirmation of a suggestion response. */
-  private handleSuggestionResolved(hexcoreId: string, suggestionId: string, ok: boolean, reason?: string): void {
-    if (ok) {
-      suggestionStore.remove(suggestionId);
-      console.log(`[relay] Suggestion ${suggestionId} resolved successfully`);
-    } else {
-      suggestionStore.clearResponded(suggestionId);
-      console.log(`[relay] Suggestion ${suggestionId} response failed: ${reason ?? 'unknown'}, unlocked for retry`);
-    }
   }
 
   /** Persist a refreshed access token back to relay.json */
@@ -463,9 +412,6 @@ class RelayManager {
           this.handleAuthOk.bind(this),
           this.handleAuthExpired.bind(this),
           this.collisionAlertCallback,
-          this.handleSuggestions.bind(this),
-          this.handleSuggestionsCancelled.bind(this),
-          this.handleSuggestionResolved.bind(this),
           this.handleSurfacedBranches.bind(this),
         );
         this.connections.set(target.hexcoreId, conn);
