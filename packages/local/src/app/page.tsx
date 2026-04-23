@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { useDashboard } from "@/hooks/useDashboard";
 import { useRelay } from "@/hooks/useRelay";
+import { useSpendMetrics, type Period } from "@/hooks/useSpendMetrics";
 import { decideSession } from "@/lib/dashboard-api";
 import type { DashboardState, RelayStatus, PlanWindow } from "@hexdeck/dashboard-ui";
 import {
@@ -23,6 +24,8 @@ export default function DashboardPage() {
   const relay = useRelay(relayOpen);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [planWindow, setPlanWindow] = useState<PlanWindow>("24h");
+  const [spendPeriod, setSpendPeriod] = useState<Period>("week");
+  const spendMetrics = useSpendMetrics(spendPeriod);
   const workstreamItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const previousWorkstreamRects = useRef<Map<string, DOMRect>>(new Map());
   const workstreamsForAnimation = state?.workstreams ?? [];
@@ -212,7 +215,12 @@ export default function DashboardPage() {
               onDecide={handleDecide}
             />
           ) : (
-            <MeSpendView state={state} />
+            <MeSpendView
+              state={state}
+              period={spendPeriod}
+              onPeriodChange={setSpendPeriod}
+              spendMetrics={spendMetrics}
+            />
           )}
         </div>
 

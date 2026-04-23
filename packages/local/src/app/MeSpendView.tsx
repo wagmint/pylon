@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import type { DashboardState } from "@hexdeck/dashboard-ui";
-import { useSpendMetrics, type Period } from "@/hooks/useSpendMetrics";
+import type { Period, SpendMetrics } from "@/hooks/useSpendMetrics";
 import { SpendHeadline } from "./spend/SpendHeadline";
 import { TrendSparkline } from "./spend/TrendSparkline";
 import { ModelBreakdownBars } from "./spend/ModelBreakdownBars";
@@ -10,20 +9,27 @@ import { SessionCostTable } from "./spend/SessionCostTable";
 
 interface MeSpendViewProps {
   state: DashboardState;
+  period: Period;
+  onPeriodChange: (p: Period) => void;
+  spendMetrics: SpendMetrics;
 }
 
-export function MeSpendView({ state }: MeSpendViewProps) {
-  const [period, setPeriod] = useState<Period>("week");
-  const { sessions, spend, trends, loading } = useSpendMetrics(period);
+export function MeSpendView({ state, period, onPeriodChange, spendMetrics }: MeSpendViewProps) {
+  const { sessions, spend, trends, loading } = spendMetrics;
 
   return (
-    <div
-      className="h-full overflow-y-auto scrollbar-thin p-6 space-y-6 transition-opacity duration-200"
-      style={{ opacity: loading && !sessions ? 0.5 : 1 }}
-    >
+    <div className="relative h-full overflow-y-auto scrollbar-thin">
+      {/* Loading bar — visible on period change even with stale data */}
+      {loading && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden z-10">
+          <div className="h-full w-2/5 bg-dash-green rounded-full animate-loading-slide" />
+        </div>
+      )}
+
+      <div className="p-6 space-y-6">
       <SpendHeadline
         period={period}
-        onPeriodChange={setPeriod}
+        onPeriodChange={onPeriodChange}
         sessions={sessions}
         state={state}
       />
@@ -33,6 +39,7 @@ export function MeSpendView({ state }: MeSpendViewProps) {
       <ModelBreakdownBars spend={spend} />
 
       <SessionCostTable sessions={sessions} />
+      </div>
     </div>
   );
 }
