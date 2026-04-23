@@ -969,6 +969,13 @@ const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_branch_registry_project_path ON branch_registry(project_path)`,
     ],
   },
+  {
+    id: 14,
+    name: "branch_registry_completion_signaled_at",
+    up: [
+      `ALTER TABLE branch_registry ADD COLUMN completion_signaled_at TEXT`,
+    ],
+  },
 ];
 
 export function ensureMigrationTables(database: SqliteDatabase): void {
