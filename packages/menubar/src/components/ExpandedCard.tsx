@@ -3,9 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import type { TraySeverity, HexcoreAlert } from "../lib/alerts";
-import type { StatusActionState, WorkstreamStatusAction } from "../lib/surfacing-types";
 import type { DashboardState } from "../lib/types";
-import type { FlatWorkstream, FlatUnassigned } from "../hooks/useSurfacing";
+import type { FlatBranch } from "../hooks/useSurfacing";
 import type { JoinToast as JoinToastType } from "../hooks/useDeepLink";
 import { AlertList } from "./AlertList";
 import { MeSection } from "./MeSection";
@@ -24,10 +23,7 @@ interface ExpandedCardProps {
   onClose?: () => void;
   joinToast?: JoinToastType | null;
   clearJoinToast?: () => void;
-  allWorkstreams: FlatWorkstream[];
-  allUnassigned: FlatUnassigned[];
-  reportStatus: (hexcoreId: string, workstreamId: string, action: WorkstreamStatusAction) => void;
-  statusActions: Map<string, StatusActionState>;
+  branches: FlatBranch[];
 }
 
 export function ExpandedCard({
@@ -40,10 +36,7 @@ export function ExpandedCard({
   onClose,
   joinToast,
   clearJoinToast,
-  allWorkstreams,
-  allUnassigned,
-  reportStatus,
-  statusActions,
+  branches,
 }: ExpandedCardProps) {
   const agentCount = state?.summary.activeAgents ?? 0;
   const agents = state?.agents ?? [];
@@ -113,16 +106,11 @@ export function ExpandedCard({
         {!loading && state && (
           <>
             <AlertList alerts={alerts} />
-            {alerts.length > 0 && (allWorkstreams.length > 0 || allUnassigned.length > 0) && (
+            {alerts.length > 0 && branches.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
-            <MeSection
-              allWorkstreams={allWorkstreams}
-              allUnassigned={allUnassigned}
-              statusActions={statusActions}
-              onReport={reportStatus}
-            />
-            {(allWorkstreams.length > 0 || allUnassigned.length > 0 || alerts.length > 0) && agents.length > 0 && (
+            <MeSection branches={branches} />
+            {(branches.length > 0 || alerts.length > 0) && agents.length > 0 && (
               <div className="border-t border-dash-border" />
             )}
             <AgentList agents={agents} />

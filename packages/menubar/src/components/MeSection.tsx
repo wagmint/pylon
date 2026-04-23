@@ -1,68 +1,66 @@
-import { useMemo } from "react";
-import type { StatusActionState, WorkstreamStatusAction } from "../lib/surfacing-types";
-import type { FlatWorkstream, FlatUnassigned } from "../hooks/useSurfacing";
-import { WorkstreamRow } from "./WorkstreamRow";
+import { useMemo, useState } from "react";
+import type { FlatBranch } from "../hooks/useSurfacing";
+import { BranchCard } from "./BranchCard";
 
-interface MeSectionProps {
-  allWorkstreams: FlatWorkstream[];
-  allUnassigned: FlatUnassigned[];
-  statusActions: Map<string, StatusActionState>;
-  onReport: (hexcoreId: string, workstreamId: string, action: WorkstreamStatusAction) => void;
+const statePriority: Record<string, number> = {
+  active: 0,
+  complete: 1,
+  stale: 2,
+};
+
+function repoBasename(repo: string): string {
+  return repo.split("/").pop() ?? repo;
 }
 
-export function MeSection({
-  allWorkstreams,
-  allUnassigned,
-  statusActions,
-  onReport,
-}: MeSectionProps) {
-  const stableWorkstreams = useMemo(
-    () => allWorkstreams.filter((ws) => ws.stable),
-    [allWorkstreams],
+interface MeSectionProps {
+  branches: FlatBranch[];
+}
+
+export function MeSection({ branches }: MeSectionProps) {
+  const [showArchived, setShowArchived] = useState(false);
+
+  const visibleBranches = useMemo(
+    () => (showArchived ? branches : branches.filter((b) => b.archivedAt === null)),
+    [branches, showArchived],
   );
 
-  const unstableWorkstreams = useMemo(
-    () => allWorkstreams.filter((ws) => !ws.stable),
-    [allWorkstreams],
+  const archivedCount = useMemo(
+    () => branches.filter((b) => b.archivedAt !== null).length,
+    [branches],
   );
 
-  // Group unassigned branches by repo
-  const unassignedByRepo = useMemo(() => {
-    const map = new Map<string, FlatUnassigned[]>();
-    for (const u of allUnassigned) {
-      const list = map.get(u.repo) ?? [];
-      list.push(u);
-      map.set(u.repo, list);
+  // Group by repo, sorted by repo basename
+  const groupedByRepo = useMemo(() => {
+    const map = new Map<string, FlatBranch[]>();
+    for (const b of visibleBranches) {
+      const list = map.get(b.repo) ?? [];
+      list.push(b);
+      map.set(b.repo, list);
     }
-    return map;
-  }, [allUnassigned]);
 
-  // Group unstable workstream branches by repo
-  const unstableBranchesByRepo = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const ws of unstableWorkstreams) {
-      for (const b of ws.branches) {
-        const list = map.get(b.repo) ?? [];
-        list.push(b.branch);
-        map.set(b.repo, list);
-      }
+    // Sort branches within each repo: by state priority, then by lastActivityAt desc
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        const sp = (statePriority[a.state] ?? 9) - (statePriority[b.state] ?? 9);
+        if (sp !== 0) return sp;
+        return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+      });
     }
-    return map;
-  }, [unstableWorkstreams]);
 
-  const hasContent =
-    unassignedByRepo.size > 0 ||
-    unstableBranchesByRepo.size > 0 ||
-    stableWorkstreams.length > 0;
+    // Sort repos by basename
+    return Array.from(map.entries()).sort((a, b) =>
+      repoBasename(a[0]).localeCompare(repoBasename(b[0])),
+    );
+  }, [visibleBranches]);
 
-  if (!hasContent) {
+  if (visibleBranches.length === 0 && archivedCount === 0) {
     return (
       <div className="px-3 py-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-dash-text-muted px-1">
           Me
         </span>
         <p className="text-[11px] text-dash-text-muted text-center py-3">
-          No active workstreams
+          No active branches
         </p>
       </div>
     );
@@ -74,48 +72,24 @@ export function MeSection({
         Me
       </span>
 
-      {/* Unassigned branches grouped by repo */}
-      {Array.from(unassignedByRepo).map(([repo, items]) => (
-        <div key={`unassigned-${repo}`} className="mt-1.5">
-          <p className="text-[10px] text-dash-text-dim px-1">{repo}</p>
-          {items.map((item) => (
-            <p
-              key={item.workUnitId}
-              className="text-[10px] text-dash-text-muted font-mono truncate pl-3.5"
-            >
-              {item.branch}
-            </p>
-          ))}
+      {groupedByRepo.map(([repo, items]) => (
+        <div key={repo} className="mt-1.5">
+          <p className="text-[10px] text-dash-text-dim px-1">{repoBasename(repo)}</p>
+          <div className="space-y-0.5">
+            {items.map((b) => (
+              <BranchCard key={b.workUnitId} branch={b} />
+            ))}
+          </div>
         </div>
       ))}
 
-      {/* Unstable workstream branches grouped by repo */}
-      {Array.from(unstableBranchesByRepo).map(([repo, branches]) => (
-        <div key={`unstable-${repo}`} className="mt-1.5">
-          <p className="text-[10px] text-dash-text-dim px-1">{repo}</p>
-          {branches.map((branch, i) => (
-            <p
-              key={`${repo}-${branch}-${i}`}
-              className="text-[10px] text-dash-text-muted font-mono truncate pl-3.5"
-            >
-              {branch}
-            </p>
-          ))}
-        </div>
-      ))}
-
-      {/* Stable workstreams */}
-      {stableWorkstreams.length > 0 && (
-        <div className="mt-1.5 space-y-0.5">
-          {stableWorkstreams.map((ws) => (
-            <WorkstreamRow
-              key={ws.workstreamId}
-              workstream={ws}
-              actionState={statusActions.get(ws.workstreamId)}
-              onReport={onReport}
-            />
-          ))}
-        </div>
+      {archivedCount > 0 && (
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          className="mt-2 w-full text-[10px] text-dash-text-dim hover:text-dash-text-muted transition-colors py-1"
+        >
+          {showArchived ? "Hide archived" : `Show ${archivedCount} archived`}
+        </button>
       )}
     </div>
   );
