@@ -4,7 +4,8 @@ import { loadRelayConfig, saveRelayConfig } from "./config.js";
 import { transformToOperatorState } from "./transform.js";
 import { buildIntentEventsForTarget } from "./intent-events.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
-import { sendIntentEvents, IntentIngestError } from "./intent-api.js";
+import { sendIntentEvents } from "./intent-api.js";
+import { RelayApiError } from "./relay-error.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
 import { pollGitState } from "../core/git-state.js";
 import { RelayConnection } from "./connection.js";
@@ -21,6 +22,8 @@ const HEXDECK_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const GIT_STATE_POLL_INTERVAL_MS = 3_000;
 const INTENT_BACKOFF_INITIAL_MS = 4_000;
 const INTENT_BACKOFF_MAX_MS = 5 * 60 * 1000; // 5 minutes
+const HEXDECK_SYNC_BACKOFF_INITIAL_MS = 30_000;
+const HEXDECK_SYNC_BACKOFF_MAX_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface RelayTargetStatus {
   hexcoreId: string;
@@ -48,6 +51,12 @@ interface PendingHexdeckSyncState {
   lastStartedAt: number;
   lastSucceededAt: number | null;
   syncInFlight: Promise<void> | null;
+  /** Current backoff delay in ms; 0 = no backoff. Doubles on each consecutive failure. */
+  backoffMs: number;
+  /** When the backoff period expires (Date.now() + backoffMs). Syncs are skipped until this time. */
+  backoffUntil: number;
+  /** True when sync is paused due to auth failure (401/403). Cleared on token refresh. */
+  authPaused: boolean;
 }
 
 class RelayManager {
@@ -372,6 +381,14 @@ class RelayManager {
       intentState.backoffUntil = 0;
       console.log(`[relay] auth ok for ${hexcoreId}, resuming intent flush`);
     }
+    const hexdeckState = this.pendingHexdeckSyncByTarget.get(hexcoreId);
+    if (hexdeckState?.authPaused) {
+      hexdeckState.authPaused = false;
+      hexdeckState.backoffMs = 0;
+      hexdeckState.backoffUntil = 0;
+      hexdeckState.lastStartedAt = 0;
+      console.log(`[relay] auth ok for ${hexcoreId}, resuming hexdeck sync`);
+    }
   }
 
   /** Called when relay credentials are no longer valid and reconnect is required. */
@@ -386,7 +403,13 @@ class RelayManager {
         intentState.flushTimer = null;
       }
     }
-    console.error(`[relay] auth expired for ${hexcoreId}, pausing intent flush until re-auth`);
+    const hexdeckState = this.pendingHexdeckSyncByTarget.get(hexcoreId);
+    if (hexdeckState) {
+      hexdeckState.authPaused = true;
+      hexdeckState.backoffMs = 0;
+      hexdeckState.backoffUntil = 0;
+    }
+    console.error(`[relay] auth expired for ${hexcoreId}, pausing intent flush and hexdeck sync until re-auth`);
   }
 
   private syncConnections(): void {
@@ -525,9 +548,10 @@ class RelayManager {
       try {
         await sendIntentEvents(target, batch);
       } catch (err) {
-        const status = err instanceof IntentIngestError ? err.status : 0;
+        const status = err instanceof RelayApiError ? err.status : 0;
+        const retryAfterMs = err instanceof RelayApiError ? err.retryAfterMs ?? 0 : 0;
 
-        if (status === 401 || status === 403) {
+        if (status === 401 || (status === 403 && retryAfterMs === 0)) {
           // Auth failure — stop retrying until token is refreshed.
           // Queue is preserved so events flush once auth is restored.
           state.authPaused = true;
@@ -535,10 +559,11 @@ class RelayManager {
           break;
         }
 
-        // For 429 and other transient errors, apply exponential backoff
-        state.backoffMs = state.backoffMs === 0
+        // For 429 and other transient errors, apply exponential backoff.
+        const nextBackoffMs = state.backoffMs === 0
           ? INTENT_BACKOFF_INITIAL_MS
           : Math.min(state.backoffMs * 2, INTENT_BACKOFF_MAX_MS);
+        state.backoffMs = Math.max(nextBackoffMs, Math.min(retryAfterMs, INTENT_BACKOFF_MAX_MS));
         state.backoffUntil = Date.now() + state.backoffMs;
         console.error(
           `[relay] intent flush failed for ${target.hexcoreId}:`,
@@ -577,6 +602,9 @@ class RelayManager {
         lastStartedAt: 0,
         lastSucceededAt: null,
         syncInFlight: null,
+        backoffMs: 0,
+        backoffUntil: 0,
+        authPaused: false,
       };
       this.pendingHexdeckSyncByTarget.set(hexcoreId, state);
     }
@@ -588,9 +616,13 @@ class RelayManager {
 
     const state = this.getPendingHexdeckSyncState(target.hexcoreId);
     if (state.syncInFlight) return;
+    if (state.authPaused) return;
 
     const now = Date.now();
-    if (now - state.lastStartedAt < HEXDECK_SYNC_INTERVAL_MS) {
+    if (state.backoffUntil > now) return;
+    // Normal 5-minute cadence only applies when not recovering from an error.
+    // When backoffMs > 0, backoffUntil already controlled when we retry.
+    if (state.backoffMs === 0 && now - state.lastStartedAt < HEXDECK_SYNC_INTERVAL_MS) {
       return;
     }
 
@@ -607,10 +639,27 @@ class RelayManager {
     try {
       await syncHexdeckToRelayTarget(target.hexcoreId);
       state.lastSucceededAt = Date.now();
+      state.backoffMs = 0;
+      state.backoffUntil = 0;
     } catch (err) {
+      const status = err instanceof RelayApiError ? err.status : 0;
+      const retryAfterMs = err instanceof RelayApiError ? err.retryAfterMs ?? 0 : 0;
+
+      if (status === 401 || (status === 403 && retryAfterMs === 0)) {
+        state.authPaused = true;
+        console.error(`[relay] hexdeck sync auth failed (${status}) for ${target.hexcoreId}, pausing until token refresh`);
+        return;
+      }
+
+      const nextBackoffMs = state.backoffMs === 0
+        ? HEXDECK_SYNC_BACKOFF_INITIAL_MS
+        : Math.min(state.backoffMs * 2, HEXDECK_SYNC_BACKOFF_MAX_MS);
+      state.backoffMs = Math.max(nextBackoffMs, Math.min(retryAfterMs, HEXDECK_SYNC_BACKOFF_MAX_MS));
+      state.backoffUntil = Date.now() + state.backoffMs;
       console.error(
         `[relay] hexdeck sync failed for ${target.hexcoreId}:`,
         err instanceof Error ? err.message : err,
+        `(backoff ${state.backoffMs}ms)`,
       );
     }
   }

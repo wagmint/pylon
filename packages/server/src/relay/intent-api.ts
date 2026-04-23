@@ -1,12 +1,7 @@
 import { deriveHttpBaseFromWs } from "./link.js";
 import type { NormalizedIntentEvent } from "./intent-events.js";
 import type { RelayTarget } from "./types.js";
-
-export class IntentIngestError extends Error {
-  constructor(message: string, public readonly status: number) {
-    super(message);
-  }
-}
+import { RelayApiError, classifyRelayResponse } from "./relay-error.js";
 
 export async function sendIntentEvents(target: RelayTarget, events: NormalizedIntentEvent[]): Promise<void> {
   if (events.length === 0) return;
@@ -24,13 +19,7 @@ export async function sendIntentEvents(target: RelayTarget, events: NormalizedIn
   });
 
   if (!response.ok) {
-    let message = `Intent event ingest failed (${response.status})`;
-    try {
-      const body = await response.json() as { message?: string };
-      if (body?.message) message = body.message;
-    } catch {
-      // ignore
-    }
-    throw new IntentIngestError(message, response.status);
+    throw await classifyRelayResponse(response, "Intent event ingest failed");
   }
 }
+
