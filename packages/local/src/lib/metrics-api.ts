@@ -39,6 +39,7 @@ export interface SessionListItem {
   operatorId: string | null;
   operatorName: string | null;
   projectPath: string;
+  gitBranch: string | null;
   startedAt: string;
   endedAt: string | null;
   durationMs: number | null;

@@ -137,6 +137,23 @@ export function getLastKnownBranch(projectPath: string): string | undefined {
   return lastKnown.get(projectPath)?.branch;
 }
 
+/** Resolve current branch by running git. Falls back when in-memory cache is empty. */
+export function resolveCurrentBranch(projectPath: string): string | null {
+  const gitCwd = resolveGitCwd(projectPath);
+  if (!gitCwd) return null;
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: gitCwd,
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read the last-known state (branch + hash) for a project without running git. */
 export function getLastKnownState(projectPath: string): { branch: string; headHash: string } | undefined {
   const state = lastKnown.get(projectPath);

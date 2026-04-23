@@ -2,6 +2,7 @@ import type { SessionInfo } from "../types/index.js";
 import type { AgentProvider, ProviderSessionRef, SessionLifecycle } from "../providers/types.js";
 import { toProviderSessionRef } from "../providers/types.js";
 import { getDb } from "./db.js";
+import { getLastKnownBranch, resolveCurrentBranch } from "../core/git-state.js";
 
 export const STORAGE_PARSER_VERSION = process.env.HEXDECK_STORAGE_PARSER_VERSION ?? "m5-workstreams-v2";
 
@@ -288,12 +289,13 @@ export function upsertSession(
       end_reason,
       metadata_json
     )
-    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'discovered', NULL, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'discovered', NULL, ?)
     ON CONFLICT(id) DO UPDATE SET
       source_type = CASE WHEN sessions.status = 'ended' THEN sessions.source_type ELSE excluded.source_type END,
       transcript_source_id = CASE WHEN sessions.status = 'ended' THEN sessions.transcript_source_id ELSE excluded.transcript_source_id END,
       project_path = CASE WHEN sessions.status = 'ended' THEN sessions.project_path ELSE excluded.project_path END,
       cwd = CASE WHEN sessions.status = 'ended' THEN sessions.cwd ELSE excluded.cwd END,
+      git_branch = COALESCE(excluded.git_branch, sessions.git_branch),
       last_event_at = CASE WHEN sessions.status = 'ended' THEN sessions.last_event_at ELSE excluded.last_event_at END,
       metadata_json = CASE WHEN sessions.status = 'ended' THEN sessions.metadata_json ELSE excluded.metadata_json END
   `).run(
@@ -303,6 +305,7 @@ export function upsertSession(
     ref.projectPath,
     // TODO: populate cwd from transcript parsing once the parsed evidence layer lands.
     ref.projectPath,
+    getLastKnownBranch(ref.projectPath) ?? resolveCurrentBranch(ref.projectPath),
     ref.createdAt.toISOString(),
     ref.modifiedAt.toISOString(),
     JSON.stringify(metadata),
