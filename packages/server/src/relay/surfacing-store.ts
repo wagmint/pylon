@@ -1,9 +1,8 @@
-import type { SurfacedWorkstream, SurfacedUnassigned } from "./types.js";
+import type { SurfacedBranchCard } from "./types.js";
 
 export interface StoredSurfacing {
   hexcoreId: string;
-  workstreams: SurfacedWorkstream[];
-  unassigned: SurfacedUnassigned[];
+  branches: SurfacedBranchCard[];
   receivedAt: string;
 }
 
@@ -11,11 +10,10 @@ class SurfacingStore {
   /** hexcoreId → latest surfaced state */
   private state = new Map<string, StoredSurfacing>();
 
-  upsert(hexcoreId: string, workstreams: SurfacedWorkstream[], unassigned: SurfacedUnassigned[]): void {
+  upsert(hexcoreId: string, branches: SurfacedBranchCard[]): void {
     this.state.set(hexcoreId, {
       hexcoreId,
-      workstreams,
-      unassigned,
+      branches,
       receivedAt: new Date().toISOString(),
     });
   }
@@ -27,17 +25,6 @@ class SurfacingStore {
   /** Get all surfacing state across all hexcores. */
   getAll(): StoredSurfacing[] {
     return [...this.state.values()];
-  }
-
-  /** Get merged workstreams from all hexcores. */
-  getAllWorkstreams(): (SurfacedWorkstream & { hexcoreId: string })[] {
-    const result: (SurfacedWorkstream & { hexcoreId: string })[] = [];
-    for (const [hexcoreId, entry] of this.state) {
-      for (const ws of entry.workstreams) {
-        result.push({ ...ws, hexcoreId });
-      }
-    }
-    return result;
   }
 
   remove(hexcoreId: string): void {

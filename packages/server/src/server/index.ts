@@ -12,7 +12,8 @@ import { toProviderSessionRef } from "../providers/index.js";
 import { blockedSessions, clearBlockedSession, clearStaleBlocked, ensureHooks, createPendingDecision, hasPendingDecision, hasBlockedSession, resolveAllDecisions, markSessionStopped, type BlockedInfo } from "../core/blocked.js";
 import { relayManager } from "../relay/manager.js";
 import { suggestionStore } from "../relay/suggestion-store.js";
-import { surfacingStore } from "../relay/surfacing-store.js";
+import { surfacingStore, type StoredSurfacing } from "../relay/surfacing-store.js";
+import type { SurfacedBranchCard } from "../relay/types.js";
 import { type ParsedConnectLink, parseConnectLink, exchangeConnectLink, createRelayClaim, deriveHttpBaseFromWs } from "../relay/link.js";
 import { syncHexdeckToRelayTarget } from "../relay/hexdeck-sync.js";
 import { storeClaim, getClaim, removeClaim, cleanupExpiredClaims } from "../relay/claims.js";
@@ -223,6 +224,29 @@ function shouldTickerRun() {
   return clients.size > 0 || relayManager.hasTargets;
 }
 
+/**
+ * Backward-compat shim: synthesize the old workstreams/unassigned shape from
+ * branch cards so the shipped menubar (pre-PR5) renders real data.
+ * Every non-archived branch card becomes an "unassigned" entry.
+ */
+function branchesToLegacySurfacing(entry: StoredSurfacing) {
+  return {
+    hexcoreId: entry.hexcoreId,
+    branches: entry.branches,
+    workstreams: [] as unknown[],
+    unassigned: entry.branches
+      .filter((b: SurfacedBranchCard) => b.archivedAt === null)
+      .map((b: SurfacedBranchCard) => ({
+        repo: b.repo,
+        branch: b.branch,
+        state: b.state,
+        workUnitId: b.workUnitId,
+        hasFileChanges: b.filesTouched.length > 0,
+      })),
+    receivedAt: entry.receivedAt,
+  };
+}
+
 function startTicker() {
   if (tickerInterval) return;
   tickerInterval = setInterval(() => {
@@ -257,7 +281,7 @@ function startTicker() {
           didBroadcast = true;
         }
 
-        // SSE — surfaced workstreams (separate event type)
+        // SSE — surfaced branches (separate event type)
         const surfacingData = surfacingStore.getAll();
         const surfacingJson = JSON.stringify(surfacingData);
         if (surfacingJson !== lastSurfacingJson) {
@@ -265,12 +289,7 @@ function startTicker() {
           lastBroadcastTime = Date.now();
           sseMessageId++;
           const surfacingPayload = JSON.stringify({
-            hexcores: surfacingData.map((entry) => ({
-              hexcoreId: entry.hexcoreId,
-              workstreams: entry.workstreams,
-              unassigned: entry.unassigned,
-              receivedAt: entry.receivedAt,
-            })),
+            hexcores: surfacingData.map(branchesToLegacySurfacing),
           });
           for (const client of clients) {
             client.stream.writeSSE({ data: surfacingPayload, event: "surfacing", id: String(sseMessageId) }).catch(() => {});
@@ -385,12 +404,7 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
       const surfacingData = surfacingStore.getAll();
       if (surfacingData.length > 0) {
         const surfacingPayload = JSON.stringify({
-          hexcores: surfacingData.map((entry) => ({
-            hexcoreId: entry.hexcoreId,
-            workstreams: entry.workstreams,
-            unassigned: entry.unassigned,
-            receivedAt: entry.receivedAt,
-          })),
+          hexcores: surfacingData.map(branchesToLegacySurfacing),
         });
         sseMessageId++;
         await stream.writeSSE({ data: surfacingPayload, event: "surfacing", id: String(sseMessageId) });
@@ -693,66 +707,36 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 
   // ─── Surfaced Workstreams API Routes ─────────────────────────────────────
 
-  /** List surfaced workstreams from connected hexcores. */
+  /** List surfaced branches from connected hexcores. */
   app.get("/api/surfaced-workstreams", (c) => {
     const hexcoreId = c.req.query("hexcoreId");
     if (hexcoreId) {
       const entry = surfacingStore.getByHexcore(hexcoreId);
       if (!entry) {
-        return c.json({ workstreams: [], unassigned: [] });
+        return c.json({ branches: [], workstreams: [], unassigned: [] });
       }
+      const compat = branchesToLegacySurfacing(entry);
       return c.json({
-        workstreams: entry.workstreams,
-        unassigned: entry.unassigned,
-        receivedAt: entry.receivedAt,
+        branches: compat.branches,
+        workstreams: compat.workstreams,
+        unassigned: compat.unassigned,
+        receivedAt: compat.receivedAt,
       });
     }
     const all = surfacingStore.getAll();
     return c.json({
-      hexcores: all.map((entry) => ({
-        hexcoreId: entry.hexcoreId,
-        workstreams: entry.workstreams,
-        unassigned: entry.unassigned,
-        receivedAt: entry.receivedAt,
-      })),
+      hexcores: all.map(branchesToLegacySurfacing),
     });
   });
 
-  /** Report work unit status (Done/Dropped) for a workstream. */
+  /** @deprecated Stub — Done/Dropped removed in V2. Returns ok so old menubar doesn't error. Remove after PR5. */
   app.post("/api/surfaced-workstreams/:workstreamId/status", async (c) => {
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    try {
-      const { workstreamId } = c.req.param();
-      if (!UUID_RE.test(workstreamId)) {
-        return c.json({ ok: false, reason: "Invalid workstream ID" }, 400);
-      }
-      const body = await c.req.json<{ status?: string; hexcoreId?: string }>();
-      if (body.status !== "done" && body.status !== "dropped") {
-        return c.json({ ok: false, reason: "Invalid status — must be 'done' or 'dropped'" }, 400);
-      }
-      if (!body.hexcoreId || !UUID_RE.test(body.hexcoreId)) {
-        return c.json({ ok: false, reason: "Missing or invalid hexcoreId" }, 400);
-      }
-      const sent = relayManager.reportWorkUnitStatus(body.hexcoreId, workstreamId, body.status);
-      if (!sent) {
-        return c.json({ ok: false, reason: "Not connected to hexcore" }, 503);
-      }
-      return c.json({ ok: true, pending: true });
-    } catch {
-      return c.json({ ok: false, reason: "Invalid JSON" }, 400);
-    }
+    return c.json({ ok: true, deprecated: true });
   });
 
-  /** Check result of a pending work unit status request. */
+  /** @deprecated Stub — status polling removed in V2. Remove after PR5. */
   app.get("/api/surfaced-workstreams/:workstreamId/status-result", (c) => {
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const { workstreamId } = c.req.param();
-    const hexcoreId = c.req.query("hexcoreId");
-    if (!hexcoreId || !UUID_RE.test(hexcoreId) || !UUID_RE.test(workstreamId)) {
-      return c.json({ error: "Missing or invalid hexcoreId/workstreamId" }, 400);
-    }
-    const status = relayManager.getWorkUnitStatusResult(hexcoreId, workstreamId);
-    return c.json(status);
+    return c.json({ pending: false, deprecated: true });
   });
 
   // ─── Relay API Routes ─────────────────────────────────────────────────────

@@ -11,10 +11,9 @@ import { pollGitState, resolveGitCwd } from "../core/git-state.js";
 import { isIgnoredBranch, upsertBranch } from "../storage/branch-registry.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
-import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedWorkstream, SurfacedUnassigned } from "./types.js";
+import type { RelayTarget, SuggestionPayload, SuggestionResponseMessage, SurfacedBranchCard } from "./types.js";
 import { suggestionStore } from "./suggestion-store.js";
 import { surfacingStore } from "./surfacing-store.js";
-import { statusResultStore } from "./status-result-store.js";
 
 const INTENT_BATCH_SIZE = 100;
 const INTENT_FLUSH_INTERVAL_MS = 2_000;
@@ -157,29 +156,6 @@ class RelayManager {
       }
     }
     return sent;
-  }
-
-  /** Send a work unit status (Done/Dropped) to hexcore for a workstream. */
-  reportWorkUnitStatus(hexcoreId: string, workstreamId: string, status: "done" | "dropped"): boolean {
-    const conn = this.connections.get(hexcoreId);
-    if (!conn?.isConnected) return false;
-    const sent = conn.sendWorkUnitStatus(workstreamId, status);
-    if (sent) {
-      statusResultStore.track(hexcoreId, workstreamId, status);
-    }
-    return sent;
-  }
-
-  /** Check pending/resolved status for a work unit status request. */
-  getWorkUnitStatusResult(hexcoreId: string, workstreamId: string): { pending: boolean; result?: { ok: boolean; reason?: string } } {
-    if (statusResultStore.isPending(hexcoreId, workstreamId)) {
-      return { pending: true };
-    }
-    const result = statusResultStore.getResult(hexcoreId, workstreamId);
-    if (result) {
-      return { pending: false, result: { ok: result.ok!, reason: result.reason } };
-    }
-    return { pending: false };
   }
 
   /** Find the hexcoreId for a suggestion from the store. */
@@ -373,34 +349,18 @@ class RelayManager {
     console.log(`[relay] ${suggestionIds.length} suggestions cancelled from ${hexcoreId}`);
   }
 
-  /** Resolve a pending work unit status request with the hexcore ack. */
-  private handleWorkUnitStatusAck(hexcoreId: string, workstreamId: string, ok: boolean, reason?: string): void {
-    statusResultStore.resolve(hexcoreId, workstreamId, ok, reason);
-    if (!ok) {
-      console.log(`[relay] Work unit status failed for ${workstreamId} in ${hexcoreId}: ${reason ?? "unknown"}`);
-    }
-  }
+  /** Store surfaced branches from hexcore. */
+  private handleSurfacedBranches(hexcoreId: string, branches: SurfacedBranchCard[]): void {
+    surfacingStore.upsert(hexcoreId, branches);
+    console.log(`[relay] Received surfaced branches from ${hexcoreId}: ${branches.length} branches`);
 
-  /** Store surfaced workstreams from hexcore. */
-  private handleSurfacedWorkstreams(hexcoreId: string, workstreams: SurfacedWorkstream[], unassigned: SurfacedUnassigned[]): void {
-    surfacingStore.upsert(hexcoreId, workstreams, unassigned);
-    console.log(`[relay] Received surfaced workstreams from ${hexcoreId}: ${workstreams.length} workstreams, ${unassigned.length} unassigned`);
-
-    // Best-effort branch registry population from surfaced workstream data
+    // Best-effort branch registry population from surfaced branch data
     try {
-      for (const ws of workstreams) {
-        for (const b of ws.branches) {
-          if (isIgnoredBranch(b.branch)) continue;
-          const repoRoot = resolveGitCwd(b.repo);
-          if (!repoRoot) continue;
-          upsertBranch({ projectPath: b.repo, repoRoot, branch: b.branch, hexcoreId, workUnitId: b.workUnitId });
-        }
-      }
-      for (const u of unassigned) {
-        if (isIgnoredBranch(u.branch)) continue;
-        const repoRoot = resolveGitCwd(u.repo);
+      for (const b of branches) {
+        if (isIgnoredBranch(b.branch)) continue;
+        const repoRoot = resolveGitCwd(b.repo);
         if (!repoRoot) continue;
-        upsertBranch({ projectPath: u.repo, repoRoot, branch: u.branch, hexcoreId, workUnitId: u.workUnitId });
+        upsertBranch({ projectPath: b.repo, repoRoot, branch: b.branch, hexcoreId, workUnitId: b.workUnitId });
       }
     } catch { /* best-effort — never break relay path */ }
   }
@@ -501,8 +461,7 @@ class RelayManager {
           this.handleSuggestions.bind(this),
           this.handleSuggestionsCancelled.bind(this),
           this.handleSuggestionResolved.bind(this),
-          this.handleSurfacedWorkstreams.bind(this),
-          this.handleWorkUnitStatusAck.bind(this),
+          this.handleSurfacedBranches.bind(this),
         );
         this.connections.set(target.hexcoreId, conn);
         conn.connect();
