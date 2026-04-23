@@ -1,6 +1,7 @@
 import { deriveHttpBaseFromWs } from "./link.js";
 import type { RelayTarget } from "./types.js";
 import type { HexcoreExportPayload, HexcoreSyncCursor } from "../storage/hexcore-export.js";
+import { classifyRelayResponse } from "./relay-error.js";
 
 interface HexdeckSyncStateResponse {
   success?: boolean;
@@ -25,17 +26,15 @@ export async function fetchHexdeckSyncCursor(target: RelayTarget): Promise<Hexco
     },
   });
 
-  const rawText = await response.text();
-  let body: HexdeckSyncStateResponse | null = null;
-  try {
-    body = JSON.parse(rawText) as HexdeckSyncStateResponse;
-  } catch {
-    body = null;
+  if (!response.ok) {
+    throw await classifyRelayResponse(response, "Failed to fetch Hexdeck sync state");
   }
 
-  if (!response.ok) {
-    const detail = body?.message || summarizeErrorBody(rawText, response.headers.get("content-type") || "", response.status);
-    throw new Error(`Failed to fetch Hexdeck sync state (${response.status}): ${detail}`);
+  let body: HexdeckSyncStateResponse | null = null;
+  try {
+    body = await response.json() as HexdeckSyncStateResponse;
+  } catch {
+    body = null;
   }
 
   const syncState = body?.data?.syncState;
@@ -64,41 +63,20 @@ export async function sendHexdeckIngestBatch(
     body: JSON.stringify({ payloadB64 }),
   });
 
-  const rawText = await response.text();
-  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok) {
+    throw await classifyRelayResponse(response, "Hexdeck ingest failed");
+  }
+
   let body: { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } } | null = null;
   try {
-    body = JSON.parse(rawText) as { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } };
+    body = await response.json() as { message?: string; data?: { batchId: string; sessionCount: number; evidenceCount: number } };
   } catch {
     body = null;
   }
 
-  if (!response.ok || !body?.data) {
-    const detail = body?.message
-      || summarizeErrorBody(rawText, contentType, response.status)
-      || "no response body";
-    throw new Error(`Hexdeck ingest failed (${response.status}): ${detail}`);
+  if (!body?.data) {
+    throw new Error(`Hexdeck ingest failed (${response.status}): no response body`);
   }
 
   return body.data;
-}
-
-function summarizeErrorBody(rawText: string, contentType: string, status: number): string {
-  if (!rawText) {
-    return `HTTP ${status}`;
-  }
-
-  if (contentType.includes("application/json")) {
-    return truncate(rawText, 300);
-  }
-
-  if (contentType.includes("text/html") || /<html[\s>]/i.test(rawText)) {
-    return `HTTP ${status} HTML error response`;
-  }
-
-  return truncate(rawText.replace(/\s+/g, " ").trim(), 300);
-}
-
-function truncate(value: string, maxLength: number): string {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 3)}...`;
 }
