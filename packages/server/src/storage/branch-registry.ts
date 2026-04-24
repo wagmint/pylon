@@ -76,6 +76,27 @@ export function upsertBranch(input: UpsertBranchInput): void {
   );
 }
 
+/**
+ * Enrich a branch row with hexcore-owned fields only.
+ * Does NOT touch lifecycle signals (state, last_activity_at, archived_at, last_head_hash)
+ * which are owned by Hexdeck's local git poller.
+ * No-op if the branch row doesn't exist yet (surfacing alone doesn't create rows).
+ */
+export function enrichBranchFromSurfacing(
+  projectPath: string,
+  branch: string,
+  hexcoreId: string,
+  workUnitId?: string,
+): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE branch_registry
+    SET hexcore_id = COALESCE(?, hexcore_id),
+        work_unit_id = COALESCE(?, work_unit_id)
+    WHERE project_path = ? AND branch = ?
+  `).run(hexcoreId, workUnitId ?? null, projectPath, branch);
+}
+
 const SELECT_COLS = `
   id,
   project_path AS projectPath,
@@ -161,6 +182,24 @@ export function updateCommitCount(id: number, count: number): void {
   db.prepare(`
     UPDATE branch_registry SET commit_count = ? WHERE id = ?
   `).run(count, id);
+}
+
+export function setCommitCountByKey(projectPath: string, branch: string, count: number): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE branch_registry
+    SET commit_count = ?
+    WHERE project_path = ? AND branch = ?
+  `).run(count, projectPath, branch);
+}
+
+export function seedCommitCountByKey(projectPath: string, branch: string, count: number): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE branch_registry
+    SET commit_count = ?
+    WHERE project_path = ? AND branch = ? AND commit_count = 0
+  `).run(count, projectPath, branch);
 }
 
 export function archiveBranch(id: number): void {

@@ -8,6 +8,7 @@ export interface GitProjectState {
   headHash: string;
   dirty: boolean;
   previousHeadHash?: string;
+  previousBranch?: string;
 }
 
 interface LastKnownState {
@@ -123,6 +124,7 @@ export function pollGitState(projectPaths: string[]): GitProjectState[] {
         headHash,
         dirty,
         previousHeadHash: prev?.headHash,
+        previousBranch: prev?.branch,
       });
     } catch {
       // Non-git directory or git command failed — silently skip
@@ -159,4 +161,24 @@ export function getLastKnownState(projectPath: string): { branch: string; headHa
   const state = lastKnown.get(projectPath);
   if (!state) return undefined;
   return { branch: state.branch, headHash: state.headHash };
+}
+
+const SAFE_REF_RE = /^[a-zA-Z0-9/_.\-@]+$/;
+
+/** Count commits ahead of defaultBranch for a given branch. Returns null on failure. */
+export function countCommitsAhead(repoRoot: string, branch: string, defaultBranch: string): number | null {
+  if (!SAFE_REF_RE.test(branch) || branch.includes("..")) return null;
+  if (!SAFE_REF_RE.test(defaultBranch) || defaultBranch.includes("..")) return null;
+  try {
+    const out = execSync(`git rev-list --count ${defaultBranch}..${branch}`, {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const count = parseInt(out, 10);
+    return Number.isFinite(count) ? count : null;
+  } catch {
+    return null;
+  }
 }

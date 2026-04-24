@@ -7,8 +7,9 @@ import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
 import { RelayApiError } from "./relay-error.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
-import { pollGitState, resolveGitCwd } from "../core/git-state.js";
-import { isIgnoredBranch, upsertBranch } from "../storage/branch-registry.js";
+import { pollGitState, resolveGitCwd, countCommitsAhead } from "../core/git-state.js";
+import { isIgnoredBranch, upsertBranch, enrichBranchFromSurfacing, setCommitCountByKey, seedCommitCountByKey } from "../storage/branch-registry.js";
+import { resolveDefaultBranch } from "../core/merge-detection.js";
 import { backfillBranchFromSurfacing } from "../storage/session-summaries.js";
 import { RelayConnection } from "./connection.js";
 import type { RelayConnectionStatus, RelayCollisionAlert, OnCollisionAlerts } from "./connection.js";
@@ -274,6 +275,31 @@ class RelayManager {
         const repoRoot = resolveGitCwd(g.projectPath);
         if (!repoRoot) continue;
         upsertBranch({ projectPath: g.projectPath, repoRoot, branch: g.branch, headHash: g.headHash });
+
+        // Local commit counting — use git rev-list as source of truth.
+        // Handles multi-commit pushes, rebases, and force-pushes correctly.
+        const sameBranch = g.previousBranch != null && g.previousBranch === g.branch;
+        const hashChanged = g.previousHeadHash != null && g.previousHeadHash !== g.headHash;
+
+        if (sameBranch && hashChanged) {
+          // Same branch, hash changed → recount from git (not +1, which drifts)
+          const defaultBranch = resolveDefaultBranch(repoRoot);
+          if (defaultBranch) {
+            const count = countCommitsAhead(repoRoot, g.branch, defaultBranch);
+            if (count != null) {
+              setCommitCountByKey(g.projectPath, g.branch, count);
+            }
+          }
+        } else if (!sameBranch) {
+          // First observation or branch switch → seed from git if count is 0
+          const defaultBranch = resolveDefaultBranch(repoRoot);
+          if (defaultBranch) {
+            const count = countCommitsAhead(repoRoot, g.branch, defaultBranch);
+            if (count != null) {
+              seedCommitCountByKey(g.projectPath, g.branch, count);
+            }
+          }
+        }
       }
     } catch { /* best-effort — never break relay path */ }
 
@@ -315,13 +341,14 @@ class RelayManager {
     surfacingStore.upsert(hexcoreId, branches);
     console.log(`[relay] Received surfaced branches from ${hexcoreId}: ${branches.length} branches`);
 
-    // Best-effort branch registry + session backfill from surfaced branch data
+    // Best-effort enrichment + session backfill from surfaced branch data.
+    // Only writes hexcore-owned fields (hexcoreId, workUnitId) — never touches
+    // lifecycle/activity signals (state, last_activity_at, archived_at) which
+    // are owned by Hexdeck's local git poller.
     try {
       for (const b of branches) {
         if (isIgnoredBranch(b.branch)) continue;
-        const repoRoot = resolveGitCwd(b.repo);
-        if (!repoRoot) continue;
-        upsertBranch({ projectPath: b.repo, repoRoot, branch: b.branch, hexcoreId, workUnitId: b.workUnitId });
+        enrichBranchFromSurfacing(b.repo, b.branch, hexcoreId, b.workUnitId);
         // Backfill git_branch on sessions/summaries using hexcore's session→branch mapping
         if (b.sessionIds.length > 0) {
           backfillBranchFromSurfacing(b.sessionIds, b.branch);
