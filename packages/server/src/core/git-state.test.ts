@@ -98,7 +98,36 @@ describe("normalizeProjectPath", () => {
       throw new Error("ENOENT");
     });
 
-    mockTranscriptContent('{"role":"assistant","content":"Working on hexdeck dashboard"}\n');
+    // Transcript contains full child path (as would appear in tool call file_paths)
+    mockTranscriptContent('{"tool_use":{"file_path":"/hex/hexdeck/packages/server/src/index.ts"}}\n');
+
+    const { normalizeProjectPath } = await loadModule();
+    expect(normalizeProjectPath("/hex", "/path/to/transcript.jsonl")).toBe("/hex/hexdeck");
+  });
+
+  it("returns dominant child when it has 3x more full-path mentions", async () => {
+    mockedExecSync.mockImplementation(() => {
+      throw new Error("not a git repo");
+    });
+
+    mockedReaddirSync.mockReturnValue([
+      { name: "hexdeck", isDirectory: () => true, isFile: () => false } as any,
+      { name: "hexcore", isDirectory: () => true, isFile: () => false } as any,
+    ]);
+
+    mockedStatSync.mockImplementation((p: any) => {
+      const s = String(p);
+      if (s === "/hex/hexdeck/.git" || s === "/hex/hexcore/.git") return {} as any;
+      throw new Error("ENOENT");
+    });
+
+    // hexdeck mentioned 6 times, hexcore 1 time → 6 >= 1*3 → pick hexdeck
+    const lines = [
+      '/hex/hexdeck/a', '/hex/hexdeck/b', '/hex/hexdeck/c',
+      '/hex/hexdeck/d', '/hex/hexdeck/e', '/hex/hexdeck/f',
+      '/hex/hexcore/g',
+    ].join('\n');
+    mockTranscriptContent(lines);
 
     const { normalizeProjectPath } = await loadModule();
     expect(normalizeProjectPath("/hex", "/path/to/transcript.jsonl")).toBe("/hex/hexdeck");
@@ -120,7 +149,8 @@ describe("normalizeProjectPath", () => {
       throw new Error("ENOENT");
     });
 
-    mockTranscriptContent('{"content":"Changes in hexdeck and hexcore repos"}\n');
+    // Both full paths mentioned with similar frequency → ambiguous, return parent
+    mockTranscriptContent('/hex/hexdeck/a\n/hex/hexdeck/b\n/hex/hexcore/a\n/hex/hexcore/b\n');
 
     const { normalizeProjectPath } = await loadModule();
     expect(normalizeProjectPath("/hex", "/path/to/transcript.jsonl")).toBe("/hex");

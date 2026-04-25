@@ -272,7 +272,7 @@ export function normalizeProjectPath(projectPath: string, transcriptPath?: strin
   if (!transcriptPath) return projectPath;
 
   try {
-    const PEEK_BYTES = 16384;
+    const PEEK_BYTES = 262144; // 256 KB — enough to see past initial system/user messages into tool calls
     const buf = Buffer.alloc(PEEK_BYTES);
     const fd = openSync(transcriptPath, "r");
     let bytesRead: number;
@@ -283,18 +283,30 @@ export function normalizeProjectPath(projectPath: string, transcriptPath?: strin
     }
     const head = buf.toString("utf-8", 0, bytesRead);
 
-    let matched: string | null = null;
-    let matchCount = 0;
-
+    // Count occurrences of each child's full path (not just basename).
+    // Using full paths avoids false positives from CLAUDE.md or conversation
+    // text that casually mentions sibling repo names.
+    const counts: { child: string; count: number }[] = [];
     for (const child of children) {
-      const name = basename(child);
-      if (head.includes(name)) {
-        matched = child;
-        matchCount++;
+      let count = 0;
+      let pos = 0;
+      while ((pos = head.indexOf(child, pos)) !== -1) {
+        count++;
+        pos += child.length;
       }
+      if (count > 0) counts.push({ child, count });
     }
 
-    if (matchCount === 1 && matched) return matched;
+    if (counts.length === 1) return counts[0].child;
+
+    // If multiple children match by full path, pick the dominant one
+    // (must have 3x more mentions than the runner-up)
+    if (counts.length > 1) {
+      counts.sort((a, b) => b.count - a.count);
+      if (counts[0].count >= counts[1].count * 3) {
+        return counts[0].child;
+      }
+    }
   } catch {
     // Can't read transcript — fall through
   }
