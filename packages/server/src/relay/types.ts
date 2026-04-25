@@ -190,6 +190,7 @@ export interface CollisionAckMessage {
 
 export interface GitProjectState {
   projectPath: string;
+  repoRoot: string;
   branch: string;
   headHash: string;
   dirty: boolean;

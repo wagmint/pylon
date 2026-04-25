@@ -7,7 +7,7 @@ import type { NormalizedIntentEvent } from "./intent-events.js";
 import { sendIntentEvents } from "./intent-api.js";
 import { RelayApiError } from "./relay-error.js";
 import { syncHexdeckToRelayTarget } from "./hexdeck-sync.js";
-import { pollGitState, resolveGitCwd, countCommitsAhead } from "../core/git-state.js";
+import { pollGitState, countCommitsAhead } from "../core/git-state.js";
 import { isIgnoredBranch, upsertBranch, enrichBranchFromSurfacing, setCommitCountByKey, seedCommitCountByKey } from "../storage/branch-registry.js";
 import { resolveDefaultBranch } from "../core/merge-detection.js";
 import { backfillBranchFromSurfacing } from "../storage/session-summaries.js";
@@ -272,9 +272,7 @@ class RelayManager {
     try {
       for (const g of gitChanges) {
         if (isIgnoredBranch(g.branch)) continue;
-        const repoRoot = resolveGitCwd(g.projectPath);
-        if (!repoRoot) continue;
-        upsertBranch({ projectPath: g.projectPath, repoRoot, branch: g.branch, headHash: g.headHash });
+        upsertBranch({ projectPath: g.projectPath, repoRoot: g.repoRoot, branch: g.branch, headHash: g.headHash });
 
         // Local commit counting — use git rev-list as source of truth.
         // Handles multi-commit pushes, rebases, and force-pushes correctly.
@@ -283,18 +281,18 @@ class RelayManager {
 
         if (sameBranch && hashChanged) {
           // Same branch, hash changed → recount from git (not +1, which drifts)
-          const defaultBranch = resolveDefaultBranch(repoRoot);
+          const defaultBranch = resolveDefaultBranch(g.repoRoot);
           if (defaultBranch) {
-            const count = countCommitsAhead(repoRoot, g.branch, defaultBranch);
+            const count = countCommitsAhead(g.repoRoot, g.branch, defaultBranch);
             if (count != null) {
               setCommitCountByKey(g.projectPath, g.branch, count);
             }
           }
         } else if (!sameBranch) {
           // First observation or branch switch → seed from git if count is 0
-          const defaultBranch = resolveDefaultBranch(repoRoot);
+          const defaultBranch = resolveDefaultBranch(g.repoRoot);
           if (defaultBranch) {
-            const count = countCommitsAhead(repoRoot, g.branch, defaultBranch);
+            const count = countCommitsAhead(g.repoRoot, g.branch, defaultBranch);
             if (count != null) {
               seedCommitCountByKey(g.projectPath, g.branch, count);
             }
