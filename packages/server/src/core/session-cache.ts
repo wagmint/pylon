@@ -1,18 +1,28 @@
 import { readFileSync, statSync } from "fs";
 import { parseSessionFileFromContent, parseSystemLinesFromContent } from "../parser/jsonl.js";
-import { parseCodexSessionFile } from "../parser/codex.js";
+import { parseCodexSessionFileFromContent } from "../parser/codex.js";
 import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
 import { buildSessionPlans } from "./plans.js";
 import type {
-  ParsedSession, SessionInfo, SessionPlan, TokenUsage,
+  ParsedSession, SessionEvent, SessionInfo, SessionPlan, TokenUsage,
 } from "../types/index.js";
+import type { CodexEvent } from "../parser/codex.js";
 
 // ─── In-memory parse cache ──────────────────────────────────────────────────
 
 interface CacheEntry {
   mtimeMs: number;
   parsed: ParsedSession;
+  totalLines: number;
+  sourceByteLength: number;
+}
+
+interface CodexCacheEntry {
+  mtimeMs: number;
+  parsed: ParsedSession;
+  totalLines: number;
+  sourceByteLength: number;
 }
 
 const parseCache = new Map<string, CacheEntry>();
@@ -155,7 +165,7 @@ function mergeAccumulatorIntoStats(acc: SessionAccumulator, parsed: ParsedSessio
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function getCachedOrParse(session: SessionInfo): ParsedSession {
+export function getCachedOrParse(session: SessionInfo): { parsed: ParsedSession; events: SessionEvent[] | null; totalLines: number; sourceByteLength: number } {
   const cached = parseCache.get(session.id);
   let currentMtime: number;
 
@@ -167,11 +177,14 @@ export function getCachedOrParse(session: SessionInfo): ParsedSession {
   }
 
   if (cached && cached.mtimeMs === currentMtime) {
-    return cached.parsed;
+    // Cache hit: events not retained to avoid pinning raw event arrays in memory
+    return { parsed: cached.parsed, events: null, totalLines: cached.totalLines, sourceByteLength: cached.sourceByteLength };
   }
 
   const content = readFileSync(session.path, "utf-8");
   const events = parseSessionFileFromContent(content);
+  const totalLines = content.split("\n").filter((line) => line.trim().length > 0).length;
+  const sourceByteLength = Buffer.byteLength(content, "utf-8");
   const systemMeta = parseSystemLinesFromContent(content);
   const parsed = buildParsedSession(session, events, systemMeta);
 
@@ -186,8 +199,9 @@ export function getCachedOrParse(session: SessionInfo): ParsedSession {
   // Always update accumulator to reflect current state
   updateAccumulator(session.id, parsed);
 
-  parseCache.set(session.id, { mtimeMs: currentMtime, parsed });
-  return parsed;
+  parseCache.set(session.id, { mtimeMs: currentMtime, parsed, totalLines, sourceByteLength });
+  // Cache miss: return freshly parsed events (transient — not stored in cache)
+  return { parsed, events, totalLines, sourceByteLength };
 }
 
 /** Get the accumulator's prior plans for a session (used for compaction fallback). */
@@ -202,13 +216,13 @@ export function getAccumulator(sessionId: string): SessionAccumulator | undefine
 
 // ─── Codex parse cache (separate from Claude) ───────────────────────────────
 
-const codexParseCache = new Map<string, CacheEntry>();
+const codexParseCache = new Map<string, CodexCacheEntry>();
 
 export function isCodexSession(session: SessionInfo): boolean {
   return session.path.includes("/.codex/");
 }
 
-export function getCachedOrParseCodex(session: SessionInfo): ParsedSession {
+export function getCachedOrParseCodex(session: SessionInfo): { parsed: ParsedSession; codexEvents: CodexEvent[] | null; totalLines: number; sourceByteLength: number } {
   const cached = codexParseCache.get(session.id);
   let currentMtime: number;
 
@@ -219,14 +233,17 @@ export function getCachedOrParseCodex(session: SessionInfo): ParsedSession {
   }
 
   if (cached && cached.mtimeMs === currentMtime) {
-    return cached.parsed;
+    return { parsed: cached.parsed, codexEvents: null, totalLines: cached.totalLines, sourceByteLength: cached.sourceByteLength };
   }
 
-  const events = parseCodexSessionFile(session.path);
-  const parsed = buildCodexParsedSession(session, events);
+  const content = readFileSync(session.path, "utf-8");
+  const codexEvents = parseCodexSessionFileFromContent(content);
+  const totalLines = content.split("\n").filter((line) => line.trim().length > 0).length;
+  const sourceByteLength = Buffer.byteLength(content, "utf-8");
+  const parsed = buildCodexParsedSession(session, codexEvents);
 
-  codexParseCache.set(session.id, { mtimeMs: currentMtime, parsed });
-  return parsed;
+  codexParseCache.set(session.id, { mtimeMs: currentMtime, parsed, totalLines, sourceByteLength });
+  return { parsed, codexEvents, totalLines, sourceByteLength };
 }
 
 // ─── Cache GC ────────────────────────────────────────────────────────────────

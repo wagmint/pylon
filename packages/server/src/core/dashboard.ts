@@ -13,6 +13,7 @@ import { buildTurnSummaries } from "./turn-summaries.js";
 import { loadOperatorConfig, getSelfName, operatorId as makeOperatorId, getOperatorColor } from "./config.js";
 import { buildCanonicalSessionPlans } from "./plans.js";
 import {
+  getCachedOrParse, getCachedOrParseCodex, isCodexSession,
   getAccumulator, getAccumulatorPlans, evictStaleCacheEntries,
 } from "./session-cache.js";
 import type {
@@ -458,8 +459,12 @@ async function getDashboardActiveSessions(adapter: AgentProviderAdapter): Promis
   return adapter.getActiveSessions();
 }
 
-async function parseDashboardSession(adapter: AgentProviderAdapter, ref: ProviderSessionRef): Promise<ParsedSession> {
-  return (await adapter.parseSession(ref)).parsed;
+function parseDashboardSession(_adapter: AgentProviderAdapter, ref: ProviderSessionRef): ParsedSession {
+  // Call cache directly — dashboard only needs ParsedSession, not raw events.
+  // This avoids re-parsing events on every ticker cycle just to discard them.
+  return isCodexSession(ref)
+    ? getCachedOrParseCodex(ref).parsed
+    : getCachedOrParse(ref).parsed;
 }
 
 function addSession(
@@ -594,7 +599,7 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
     const adapter = adapterByProvider.get(session.provider);
     if (!adapter) continue;
     try {
-      parsedSessions.push(await parseDashboardSession(adapter, session));
+      parsedSessions.push(parseDashboardSession(adapter, session));
       sessionLastActivityMs.set(session.id, session.modifiedAt.getTime());
       if (session.provider === "codex") codexSessionIds.add(session.id);
     } catch { /* skip broken session */ }
@@ -678,7 +683,7 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
   const historicalPlansMap = new Map<string, SessionPlan[]>();
   for (const session of historicalSessions.values()) {
     try {
-      const parsed = await parseDashboardSession(claudeAdapter, session);
+      const parsed = parseDashboardSession(claudeAdapter, session);
       const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
       const histPriorPlans = getAccumulatorPlans(session.id);
       const plans = buildCanonicalSessionPlans(parsed, label, false, histPriorPlans);

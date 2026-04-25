@@ -38,8 +38,10 @@ export const codexAdapter: AgentProviderAdapter = {
   },
 
   async parseSession(ref: ProviderSessionRef): Promise<ParsedProviderSession> {
-    const parsed = getCachedOrParseCodex(ref);
-    const rawCodexEvents = parseCodexSessionFile(ref.sourcePath);
+    const { parsed, codexEvents: cachedEvents, totalLines, sourceByteLength } = getCachedOrParseCodex(ref);
+    // On cache hit, events are null (not retained in cache to save memory).
+    // Re-parse from disk — cheaper than full buildCodexParsedSession.
+    const codexEvents = cachedEvents ?? parseCodexSessionFile(ref.sourcePath);
     const providerMetadata: Record<string, unknown> = {};
     if (parsed.codexRuntime) {
       providerMetadata.codexRuntime = parsed.codexRuntime;
@@ -47,7 +49,10 @@ export const codexAdapter: AgentProviderAdapter = {
 
     return {
       parsed,
-      rawEvents: rawCodexEvents.map((event) => normalizeCodexEvent(ref.id, event)),
+      rawEvents: codexEvents.map((event) => normalizeCodexEvent(ref.id, event)),
+      codexEvents,
+      totalLines,
+      sourceByteLength,
       providerMetadata,
     };
   },
