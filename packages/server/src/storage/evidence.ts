@@ -133,11 +133,27 @@ export function replaceParsedEvidence(input: ReplaceParsedEvidenceInput): Ingest
 
 function replaceClaudeProviderEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
   const { ref } = input;
-  const rawContent = readFileSync(ref.sourcePath, "utf-8");
-  const totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
-  const events = parseSessionFileFromContent(rawContent);
-  const systemMeta = parseSystemLinesFromContent(rawContent);
-  const parsed = input.parsed?.parsed ?? buildParsedSession(ref, events, systemMeta);
+  let events: SessionEvent[];
+  let totalLines: number;
+  let parsed: ParsedSession;
+  let byteLength: number;
+
+  if (input.parsed?.claudeEvents) {
+    // Fast path: events already parsed by cache layer
+    events = input.parsed.claudeEvents;
+    totalLines = input.parsed.totalLines!;
+    parsed = input.parsed.parsed;
+    byteLength = input.parsed.sourceByteLength!;
+  } else {
+    // Fallback: read from disk (rebuild, CLI via replaceClaudeParsedEvidence)
+    const rawContent = readFileSync(ref.sourcePath, "utf-8");
+    totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
+    events = parseSessionFileFromContent(rawContent);
+    const systemMeta = parseSystemLinesFromContent(rawContent);
+    parsed = input.parsed?.parsed ?? buildParsedSession(ref, events, systemMeta);
+    byteLength = Buffer.byteLength(rawContent, "utf-8");
+  }
+
   const eventTurnIndex = buildEventTurnIndex(parsed.turns);
   const toolCallNameById = buildToolCallNameById(events);
   const db = getDb();
@@ -331,7 +347,7 @@ function replaceClaudeProviderEvidence(input: ReplaceParsedEvidenceInput): Inges
 
   return {
     lastProcessedLine: totalLines,
-    lastProcessedByteOffset: Buffer.byteLength(rawContent, "utf-8"),
+    lastProcessedByteOffset: byteLength,
     lastProcessedTimestamp: events.at(-1)?.timestamp?.toISOString() ?? null,
   };
 }
@@ -342,10 +358,26 @@ export function replaceClaudeParsedEvidence(session: SessionInfo): IngestionChec
 
 function replaceCodexParsedEvidence(input: ReplaceParsedEvidenceInput): IngestionCheckpointProgress {
   const { ref } = input;
-  const rawContent = readFileSync(ref.sourcePath, "utf-8");
-  const totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
-  const events = parseCodexSessionFileFromContent(rawContent);
-  const parsed = input.parsed?.parsed ?? buildCodexParsedSession(ref, events);
+  let events: CodexEvent[];
+  let totalLines: number;
+  let parsed: ParsedSession;
+  let byteLength: number;
+
+  if (input.parsed?.codexEvents) {
+    // Fast path: events already parsed by cache layer
+    events = input.parsed.codexEvents;
+    totalLines = input.parsed.totalLines!;
+    parsed = input.parsed.parsed;
+    byteLength = input.parsed.sourceByteLength!;
+  } else {
+    // Fallback: read from disk (rebuild, CLI)
+    const rawContent = readFileSync(ref.sourcePath, "utf-8");
+    totalLines = rawContent.split("\n").filter((line) => line.trim().length > 0).length;
+    events = parseCodexSessionFileFromContent(rawContent);
+    parsed = input.parsed?.parsed ?? buildCodexParsedSession(ref, events);
+    byteLength = Buffer.byteLength(rawContent, "utf-8");
+  }
+
   const eventTurnIndex = buildEventTurnIndex(parsed.turns);
   const db = getDb();
 
@@ -491,7 +523,7 @@ function replaceCodexParsedEvidence(input: ReplaceParsedEvidenceInput): Ingestio
 
   return {
     lastProcessedLine: totalLines,
-    lastProcessedByteOffset: Buffer.byteLength(rawContent, "utf-8"),
+    lastProcessedByteOffset: byteLength,
     lastProcessedTimestamp: events.at(-1)?.timestamp?.toISOString() ?? null,
   };
 }

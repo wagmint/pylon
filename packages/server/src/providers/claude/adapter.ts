@@ -53,14 +53,17 @@ export const claudeAdapter: AgentProviderAdapter = {
   },
 
   async parseSession(ref: ProviderSessionRef): Promise<ParsedProviderSession> {
-    const parsed = getCachedOrParse(ref);
-    const rawEvents = parseSessionFile(ref.sourcePath).map((event) =>
-      normalizeClaudeEvent(ref.id, event)
-    );
+    const { parsed, events: cachedEvents, totalLines, sourceByteLength } = getCachedOrParse(ref);
+    // On cache hit, events are null (not retained in cache to save memory).
+    // Re-parse from disk — cheaper than full buildParsedSession.
+    const events = cachedEvents ?? parseSessionFile(ref.sourcePath);
 
     return {
       parsed,
-      rawEvents,
+      rawEvents: events.map((event) => normalizeClaudeEvent(ref.id, event)),
+      claudeEvents: events,
+      totalLines,
+      sourceByteLength,
       providerMetadata: {},
     };
   },

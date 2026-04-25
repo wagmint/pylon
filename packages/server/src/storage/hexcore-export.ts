@@ -261,7 +261,7 @@ function buildPlansForSession(
 
   let parsed;
   try {
-    parsed = getCachedOrParse(sessionInfo);
+    ({ parsed } = getCachedOrParse(sessionInfo));
   } catch {
     return [];
   }

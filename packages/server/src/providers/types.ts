@@ -1,4 +1,5 @@
-import type { ParsedSession, SessionInfo } from "../types/index.js";
+import type { ParsedSession, SessionEvent, SessionInfo } from "../types/index.js";
+import type { CodexEvent } from "../parser/codex.js";
 
 export type AgentProvider = "claude" | "codex";
 
@@ -34,6 +35,12 @@ export interface CanonicalRawEvent {
 export interface ParsedProviderSession {
   parsed: ParsedSession;
   rawEvents: CanonicalRawEvent[];
+  claudeEvents?: SessionEvent[];
+  codexEvents?: CodexEvent[];
+  totalLines?: number;
+  /** Byte length of the source content at the time it was parsed.
+   *  Used by evidence ingestion to record accurate checkpoint offsets. */
+  sourceByteLength?: number;
   providerMetadata: Record<string, unknown>;
 }
 
