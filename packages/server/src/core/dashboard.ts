@@ -19,7 +19,7 @@ import {
 import type {
   ParsedSession, Agent, AgentStatus, TurnNode,
   Workstream, WorkstreamMode, DashboardState, DashboardSummary, Operator,
-  SessionPlan, IntentTaskView,
+  SessionPlan, IntentTaskView, ProjectInfo,
 } from "../types/index.js";
 import type { SpinningSignal } from "../types/dashboard.js";
 
@@ -439,6 +439,41 @@ const RECENT_GRACE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const PLAN_HISTORY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const adapterByProvider = new Map(providerAdapters.map((adapter) => [adapter.provider, adapter]));
 
+// ─── TTL caches to reduce churn on historical/stable data ────────────────────
+
+/** Cache for listProjects() — directory structure rarely changes */
+let projectsCache: { projects: ProjectInfo[]; expiresAt: number } | null = null;
+const PROJECTS_CACHE_TTL_MS = 60_000; // 60s
+
+/** Cache for historical session discovery (24h–7d window) */
+let historicalDiscoveryCache: { sessions: Map<string, ProviderSessionRef>; expiresAt: number } | null = null;
+const HISTORICAL_DISCOVERY_TTL_MS = 5 * 60 * 1000; // 5 min
+
+/** Cache for parsed plans from historical sessions */
+let historicalPlansCache: {
+  plansMap: Map<string, SessionPlan[]>;
+  sessionIds: Set<string>;
+  expiresAt: number;
+} | null = null;
+
+/** Fingerprint of operator config — invalidate caches when it changes */
+let operatorConfigFingerprint: string | null = null;
+
+function computeOperatorFingerprint(config: { operators: Array<{ name: string; claude?: string; codex?: string }> }): string {
+  return config.operators
+    .map(op => `${op.name}:${op.claude ?? ""}:${op.codex ?? ""}`)
+    .sort()
+    .join("|");
+}
+
+/** Reset all dashboard caches. Useful for testing or a "force refresh" API. */
+export function resetDashboardCaches(): void {
+  projectsCache = null;
+  historicalDiscoveryCache = null;
+  historicalPlansCache = null;
+  operatorConfigFingerprint = null;
+}
+
 export async function buildDashboardState(prefetchedActiveSessions?: ProviderSessionRef[]): Promise<DashboardState> {
   return (await buildDashboardSnapshot(prefetchedActiveSessions)).state;
 }
@@ -485,6 +520,15 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
   const config = loadOperatorConfig();
   const selfName = getSelfName(config);
 
+  // Invalidate all caches if operator config changed
+  const currentFingerprint = computeOperatorFingerprint(config);
+  if (operatorConfigFingerprint !== null && currentFingerprint !== operatorConfigFingerprint) {
+    projectsCache = null;
+    historicalDiscoveryCache = null;
+    historicalPlansCache = null;
+  }
+  operatorConfigFingerprint = currentFingerprint;
+
   // Build operator registry
   const operatorRegistry: Operator[] = [
     { id: "self", name: selfName, color: getOperatorColor(0), status: "offline" },
@@ -526,7 +570,10 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
 
   const now = Date.now();
   // Preserve existing Claude project IDs in dashboard/workstream payloads.
-  const claudeProjects = listProjects();
+  if (!projectsCache || now >= projectsCache.expiresAt) {
+    projectsCache = { projects: listProjects(), expiresAt: now + PROJECTS_CACHE_TTL_MS };
+  }
+  const claudeProjects = projectsCache.projects;
 
   // Self provider discovery.
   for (const adapter of providerAdapters) {
@@ -568,20 +615,19 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
   }
 
   // 2c. Collect historical sessions for plan history (beyond RECENT_GRACE_MS, up to PLAN_HISTORY_MS)
-  const historicalSessions = new Map<string, ProviderSessionRef>();
-  try {
-    for (const s of await discoverDashboardSessions(claudeAdapter)) {
-      if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
-      const age = now - s.modifiedAt.getTime();
-      if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
-        historicalSessions.set(s.id, s);
-      }
+  // Cached with 5min TTL — historical sessions (>24h old) rarely change.
+  let historicalSessions: Map<string, ProviderSessionRef>;
+  if (historicalDiscoveryCache && now < historicalDiscoveryCache.expiresAt) {
+    // Clone cached map and remove any IDs that now appear in allSessions
+    // (sessions that aged into the 24h window since cache was built)
+    historicalSessions = new Map(historicalDiscoveryCache.sessions);
+    for (const id of allSessions.keys()) {
+      historicalSessions.delete(id);
     }
-  } catch { /* skip */ }
-  for (const op of config.operators) {
-    if (!op.claude) continue;
+  } else {
+    historicalSessions = new Map<string, ProviderSessionRef>();
     try {
-      for (const s of await discoverDashboardSessions(claudeAdapter, { providerDir: op.claude })) {
+      for (const s of await discoverDashboardSessions(claudeAdapter)) {
         if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
         const age = now - s.modifiedAt.getTime();
         if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
@@ -589,6 +635,19 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
         }
       }
     } catch { /* skip */ }
+    for (const op of config.operators) {
+      if (!op.claude) continue;
+      try {
+        for (const s of await discoverDashboardSessions(claudeAdapter, { providerDir: op.claude })) {
+          if (allSessions.has(s.id) || historicalSessions.has(s.id)) continue;
+          const age = now - s.modifiedAt.getTime();
+          if (age >= RECENT_GRACE_MS && age < PLAN_HISTORY_MS) {
+            historicalSessions.set(s.id, s);
+          }
+        }
+      } catch { /* skip */ }
+    }
+    historicalDiscoveryCache = { sessions: new Map(historicalSessions), expiresAt: now + HISTORICAL_DISCOVERY_TTL_MS };
   }
 
   // 3. Parse all sessions
@@ -680,18 +739,44 @@ export async function buildDashboardSnapshot(prefetchedActiveSessions?: Provider
   }
 
   // 6b. Build plan history from older sessions (plans only, no agents)
-  const historicalPlansMap = new Map<string, SessionPlan[]>();
-  for (const session of historicalSessions.values()) {
-    try {
-      const parsed = parseDashboardSession(claudeAdapter, session);
-      const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
-      const histPriorPlans = getAccumulatorPlans(session.id);
-      const plans = buildCanonicalSessionPlans(parsed, label, false, histPriorPlans);
-      if (plans.length === 0) continue;
-      const pp = parsed.session.projectPath;
-      if (!historicalPlansMap.has(pp)) historicalPlansMap.set(pp, []);
-      historicalPlansMap.get(pp)!.push(...plans);
-    } catch { /* skip unparseable */ }
+  // Reuse cached plans when the discovery cache is still fresh AND the filtered
+  // historical session set has identical membership. Comparing actual IDs (not
+  // just cardinality) handles the case where one session drops out of allSessions
+  // while a different one enters within the same TTL window.
+  let historicalPlansMap: Map<string, SessionPlan[]>;
+  let canReusePlansCache = false;
+  if (
+    historicalPlansCache
+    && historicalDiscoveryCache
+    && historicalPlansCache.expiresAt === historicalDiscoveryCache.expiresAt
+    && historicalPlansCache.sessionIds.size === historicalSessions.size
+  ) {
+    canReusePlansCache = true;
+    for (const id of historicalPlansCache.sessionIds) {
+      if (!historicalSessions.has(id)) { canReusePlansCache = false; break; }
+    }
+  }
+  if (canReusePlansCache) {
+    historicalPlansMap = historicalPlansCache!.plansMap;
+  } else {
+    historicalPlansMap = new Map<string, SessionPlan[]>();
+    for (const session of historicalSessions.values()) {
+      try {
+        const parsed = parseDashboardSession(claudeAdapter, session);
+        const label = labelMap.get(session.id) ?? session.id.slice(0, 8);
+        const histPriorPlans = getAccumulatorPlans(session.id);
+        const plans = buildCanonicalSessionPlans(parsed, label, false, histPriorPlans);
+        if (plans.length === 0) continue;
+        const pp = parsed.session.projectPath;
+        if (!historicalPlansMap.has(pp)) historicalPlansMap.set(pp, []);
+        historicalPlansMap.get(pp)!.push(...plans);
+      } catch { /* skip unparseable */ }
+    }
+    historicalPlansCache = {
+      plansMap: historicalPlansMap,
+      sessionIds: new Set(historicalSessions.keys()),
+      expiresAt: historicalDiscoveryCache?.expiresAt ?? 0,
+    };
   }
 
   // ─── Stall / idle detection (post-pass, no existing code modified) ──
