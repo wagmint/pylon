@@ -74,8 +74,7 @@ export interface SystemMeta {
   turnDurations: Array<{ timestamp: Date; durationMs: number }>;
 }
 
-export function parseSystemLines(filePath: string): SystemMeta {
-  const content = readFileSync(filePath, "utf-8");
+export function parseSystemLinesFromContent(content: string): SystemMeta {
   const lines = content.split("\n");
   const turnDurations: Array<{ timestamp: Date; durationMs: number }> = [];
 
@@ -94,6 +93,10 @@ export function parseSystemLines(filePath: string): SystemMeta {
   }
 
   return { turnDurations };
+}
+
+export function parseSystemLines(filePath: string): SystemMeta {
+  return parseSystemLinesFromContent(readFileSync(filePath, "utf-8"));
 }
 
 /**
@@ -120,8 +123,7 @@ export function parseSessionSlug(filePath: string): string | null {
  * Parse a Claude Code session JSONL file into a stream of events.
  * Each line in the JSONL is a message event (user or assistant).
  */
-export function parseSessionFile(filePath: string): SessionEvent[] {
-  const content = readFileSync(filePath, "utf-8");
+export function parseSessionFileFromContent(content: string): SessionEvent[] {
   const lines = content.split("\n").filter((line) => line.trim().length > 0);
 
   const events: SessionEvent[] = [];
@@ -151,6 +153,10 @@ export function parseSessionFile(filePath: string): SessionEvent[] {
   }
 
   return events;
+}
+
+export function parseSessionFile(filePath: string): SessionEvent[] {
+  return parseSessionFileFromContent(readFileSync(filePath, "utf-8"));
 }
 
 /**

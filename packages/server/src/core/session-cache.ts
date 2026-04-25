@@ -1,5 +1,5 @@
-import { statSync } from "fs";
-import { parseSessionFile, parseSystemLines } from "../parser/jsonl.js";
+import { readFileSync, statSync } from "fs";
+import { parseSessionFileFromContent, parseSystemLinesFromContent } from "../parser/jsonl.js";
 import { parseCodexSessionFile } from "../parser/codex.js";
 import { buildParsedSession } from "./nodes.js";
 import { buildCodexParsedSession } from "./codex-nodes.js";
@@ -170,8 +170,9 @@ export function getCachedOrParse(session: SessionInfo): ParsedSession {
     return cached.parsed;
   }
 
-  const events = parseSessionFile(session.path);
-  const systemMeta = parseSystemLines(session.path);
+  const content = readFileSync(session.path, "utf-8");
+  const events = parseSessionFileFromContent(content);
+  const systemMeta = parseSystemLinesFromContent(content);
   const parsed = buildParsedSession(session, events, systemMeta);
 
   // Compaction detection: accumulator had more turns than current parse

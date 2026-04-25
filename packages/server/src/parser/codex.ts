@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, openSync, readSync, closeSync } from "fs";
 
 // ─── Codex Event Types ──────────────────────────────────────────────────────
 
@@ -35,8 +35,7 @@ export type CodexEvent =
  * Codex rollout lines have the shape:
  *   { "timestamp": "...", "type": "session_meta"|"event_msg"|"response_item"|"compacted"|"turn_context", "payload": { ... } }
  */
-export function parseCodexSessionFile(filePath: string): CodexEvent[] {
-  const content = readFileSync(filePath, "utf-8");
+export function parseCodexSessionFileFromContent(content: string): CodexEvent[] {
   const lines = content.split("\n").filter((l) => l.trim().length > 0);
   const events: CodexEvent[] = [];
   // Track pending function_call / custom_tool_call by call_id for pairing with outputs
@@ -55,15 +54,26 @@ export function parseCodexSessionFile(filePath: string): CodexEvent[] {
   return events;
 }
 
+export function parseCodexSessionFile(filePath: string): CodexEvent[] {
+  return parseCodexSessionFileFromContent(readFileSync(filePath, "utf-8"));
+}
+
 /**
  * Read only the first line of a Codex session file to extract session metadata.
  * Used by discovery to get cwd/id without parsing the entire file.
  */
 export function readCodexSessionMeta(filePath: string): { id: string; cwd: string } | null {
   try {
-    const content = readFileSync(filePath, "utf-8");
-    const newlineIdx = content.indexOf("\n");
-    const firstLine = newlineIdx >= 0 ? content.slice(0, newlineIdx) : content;
+    const fd = openSync(filePath, "r");
+    const buf = Buffer.alloc(4096);
+    const bytesRead = readSync(fd, buf, 0, 4096, 0);
+    closeSync(fd);
+    const chunk = buf.toString("utf-8", 0, bytesRead);
+    const newlineIdx = chunk.indexOf("\n");
+    // If the first line fits in 4KB, use it; otherwise fall back to full read
+    const firstLine = newlineIdx >= 0
+      ? chunk.slice(0, newlineIdx)
+      : (bytesRead < 4096 ? chunk : readFileSync(filePath, "utf-8").split("\n")[0]);
     if (!firstLine.trim()) return null;
 
     const raw = JSON.parse(firstLine);
