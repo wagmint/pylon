@@ -24,7 +24,7 @@ import { buildHexcoreExportPayload } from "../storage/hexcore-export.js";
 import { listIngestionCheckpoints, listStoredClaudeSessions, listTranscriptSources } from "../storage/repositories.js";
 import { reconcileOnStartup, reconcileSessionLifecycles } from "../storage/reconciliation.js";
 import { materializePendingSummaries, enrichPendingSummaries, classifyPendingSummaries } from "../storage/session-summaries.js";
-import { getStorageSyncStatus, syncAllSessionsToStorage } from "../storage/sync.js";
+import { getStorageSyncStatus, syncAllSessionsToStorage, getBackfillQueue, createBackfillQueue } from "../storage/sync.js";
 import { resolveDefaultBranch, detectMergeForBranch } from "../core/merge-detection.js";
 import { getMergeCheckCandidates, getStaleEligible, getUnsignaledCompletions, markComplete, markStale, markCompletionSignaled, archiveBranch, updateDefaultBranch, updateHeadHash, updateCommitCount, updateMergeCheckedAt } from "../storage/branch-registry.js";
 import type { DashboardState } from "../types/index.js";
@@ -69,6 +69,7 @@ interface SSEClient {
 const clients = new Set<SSEClient>();
 let lastPushedJson = "";
 let lastSurfacingJson = "";
+let lastBackfillJson = "";
 let lastBroadcastTime = 0;
 let tickerInterval: ReturnType<typeof setInterval> | null = null;
 let sseMessageId = 0;
@@ -100,6 +101,9 @@ function startStorageSyncInterval() {
   if (storageSyncInterval) return;
   storageSyncInterval = setInterval(() => {
     if (storageSyncRunning) return;
+    // Skip periodic sync while backfill is still running
+    const bq = getBackfillQueue();
+    if (bq && !bq.isComplete()) return;
     storageSyncRunning = true;
     void (async () => {
       try {
@@ -294,6 +298,20 @@ function startTicker() {
             client.stream.writeSSE({ data: surfacingPayload, event: "surfacing", id: String(sseMessageId) }).catch(() => {});
           }
           didBroadcast = true;
+        }
+
+        // SSE — backfill progress (during startup sync)
+        const bfq = getBackfillQueue();
+        if (bfq && !bfq.isComplete()) {
+          const bp = JSON.stringify(bfq.getProgress());
+          if (bp !== lastBackfillJson) {
+            lastBackfillJson = bp;
+            sseMessageId++;
+            for (const client of clients) {
+              client.stream.writeSSE({ data: bp, event: "backfill", id: String(sseMessageId) }).catch(() => {});
+            }
+            didBroadcast = true;
+          }
         }
 
         // Heartbeat if nothing was broadcast
@@ -512,6 +530,12 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 
       // Each parallel hook invocation gets its own requestId
       const { requestId, promise } = createPendingDecision(sessionId);
+
+      // If backfill is running, prioritize this session so its storage data is available
+      const bfQueue = getBackfillQueue();
+      if (bfQueue && !bfQueue.isComplete()) {
+        bfQueue.promote(sessionId);
+      }
 
       blockedSessions.set(requestId, {
         requestId,
@@ -963,6 +987,13 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
     });
   });
 
+  /** Backfill progress for startup sync observability */
+  app.get("/api/storage/backfill", (c) => {
+    const queue = getBackfillQueue();
+    if (!queue) return c.json({ phase: "idle" });
+    return c.json(queue.getProgress());
+  });
+
   /** Baseline storage inspection endpoint for M2 */
   app.get("/api/storage/baseline", (c) => {
     return c.json({
@@ -1030,6 +1061,10 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
   /** Rebuild the local parsed index and baseline storage from source transcripts. */
   app.post("/api/storage/rebuild", async (c) => {
     try {
+      // Abort running backfill before rebuild
+      const rbQueue = getBackfillQueue();
+      if (rbQueue && !rbQueue.isComplete()) rbQueue.abort();
+
       await rebuildStorage();
       const sync = await syncAllSessionsToStorage("rebuilding");
       await reconcileOnStartup();
@@ -1074,11 +1109,8 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
 export async function startServer(options?: StartServerOptions): Promise<ServerType> {
   const port = options?.port ?? parseInt(process.env.PORT ?? "7433", 10);
   await initStorage();
-  await syncAllSessionsToStorage();
-  await reconcileOnStartup();
-  materializePendingSummaries();
-  enrichPendingSummaries();
-  classifyPendingSummaries();
+
+  // Serve immediately — no blocking sync
   const app = createApp({ dashboardDir: options?.dashboardDir });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
@@ -1088,12 +1120,26 @@ export async function startServer(options?: StartServerOptions): Promise<ServerT
     }
   });
 
-  // Auto-install Claude Code hooks for blocked detection
+  // Permission hooks must work immediately
   ensureHooks();
 
   // Start relay manager (connects to configured relay targets)
   relayManager.start();
   if (relayManager.hasTargets) startTicker();
+
+  // Background backfill — fire and forget
+  void createBackfillQueue().then((queue) =>
+    queue.start().then(() => {
+      console.log(`[backfill] complete: ${queue.getProgress().ingested} sessions ingested`);
+      // Deferred startup tasks that depend on full storage
+      void reconcileOnStartup().catch((err) =>
+        console.error("[reconciliation] startup failed:", err),
+      );
+      materializePendingSummaries();
+      enrichPendingSummaries();
+      classifyPendingSummaries();
+    }),
+  );
 
   startReconciliationInterval();
   startStorageSyncInterval();
