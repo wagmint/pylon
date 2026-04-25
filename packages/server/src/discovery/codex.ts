@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
 import type { SessionInfo } from "../types/index.js";
+import { normalizeProjectPath } from "../core/git-state.js";
 import { readCodexSessionMeta } from "../parser/codex.js";
 
 const CODEX_SESSIONS_DIR = join(homedir(), ".codex", "sessions");
@@ -76,7 +77,7 @@ export function discoverCodexSessions(recencyDays = 7, codexDir?: string): Sessi
               sessions.push({
                 id: meta.id,
                 path: filePath,
-                projectPath: meta.cwd,
+                projectPath: normalizeProjectPath(meta.cwd, filePath),
                 createdAt: stat.birthtime,
                 modifiedAt: stat.mtime,
                 sizeBytes: stat.size,

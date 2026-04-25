@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
-import { readdirSync, statSync } from "fs";
-import { join } from "path";
+import { closeSync, openSync, readSync, readdirSync, statSync } from "fs";
+import { basename, join } from "path";
 
 export interface GitProjectState {
   projectPath: string;
@@ -149,7 +149,7 @@ const allGitCwdsCache = new Map<string, string[]>();
  * If the path is a parent of git repos, returns all children with .git.
  * Result is cached for the lifetime of the process.
  */
-function resolveAllGitCwds(projectPath: string): string[] {
+export function resolveAllGitCwds(projectPath: string): string[] {
   const cached = allGitCwdsCache.get(projectPath);
   if (cached !== undefined) return cached;
 
@@ -214,6 +214,92 @@ export function getLastKnownState(projectPath: string): { branch: string; headHa
   const state = lastKnown.get(projectPath);
   if (!state) return undefined;
   return { branch: state.branch, headHash: state.headHash };
+}
+
+// ─── Project Path Normalization ──────────────────────────────────────────────
+
+/** Cache: path → git repo root (or null). */
+const gitRootCache = new Map<string, string | null>();
+
+/**
+ * Resolve the git repo root for a path by capturing `git rev-parse --show-toplevel`.
+ * Unlike `resolveGitCwd` which discards the output, this returns the actual repo root.
+ * Cached for the lifetime of the process.
+ */
+export function resolveGitRoot(path: string): string | null {
+  const cached = gitRootCache.get(path);
+  if (cached !== undefined) return cached;
+
+  try {
+    const root = execSync("git rev-parse --show-toplevel", {
+      cwd: path,
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    gitRootCache.set(path, root || null);
+    return root || null;
+  } catch {
+    gitRootCache.set(path, null);
+    return null;
+  }
+}
+
+/**
+ * Normalize a session's projectPath to the git repo root.
+ *
+ * Three-tier resolution:
+ * 1. `resolveGitRoot(projectPath)` — path is inside a repo, normalize to root
+ * 2. `resolveAllGitCwds(projectPath)` — path is a parent of repos
+ *    - 0 children: return as-is (not a git context)
+ *    - 1 child: return the single child (unambiguous)
+ *    - N children: go to step 3
+ * 3. Transcript peek — read first 16 KB of the JSONL, count mentions of each
+ *    child repo basename. If exactly one child is mentioned, return it.
+ *    Otherwise return projectPath as-is.
+ */
+export function normalizeProjectPath(projectPath: string, transcriptPath?: string): string {
+  // Tier 1: path is inside (or is) a git repo
+  const root = resolveGitRoot(projectPath);
+  if (root) return root;
+
+  // Tier 2: path is a parent of git repos
+  const children = resolveAllGitCwds(projectPath);
+  if (children.length === 0) return projectPath;
+  if (children.length === 1) return children[0];
+
+  // Tier 3: multiple children — peek at transcript to disambiguate
+  if (!transcriptPath) return projectPath;
+
+  try {
+    const PEEK_BYTES = 16384;
+    const buf = Buffer.alloc(PEEK_BYTES);
+    const fd = openSync(transcriptPath, "r");
+    let bytesRead: number;
+    try {
+      bytesRead = readSync(fd, buf, 0, PEEK_BYTES, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const head = buf.toString("utf-8", 0, bytesRead);
+
+    let matched: string | null = null;
+    let matchCount = 0;
+
+    for (const child of children) {
+      const name = basename(child);
+      if (head.includes(name)) {
+        matched = child;
+        matchCount++;
+      }
+    }
+
+    if (matchCount === 1 && matched) return matched;
+  } catch {
+    // Can't read transcript — fall through
+  }
+
+  return projectPath;
 }
 
 const SAFE_REF_RE = /^[a-zA-Z0-9/_.\-@]+$/;
