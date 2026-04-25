@@ -185,7 +185,7 @@ export function getStorageSyncStatus(): StorageSyncStatus {
   return lastSyncStatus;
 }
 
-function ingestTranscriptSource(
+export function ingestTranscriptSource(
   ref: ProviderSessionRef,
   transcriptSourceId: number,
   parsed?: ParsedProviderSession,
@@ -242,4 +242,21 @@ function shouldIngestTranscriptSource(ref: ProviderSessionRef, transcriptSourceI
     checkpoint.lastProcessedByteOffset === fileSizeBytes &&
     checkpoint.status === "ready"
   );
+}
+
+// ─── Backfill Singleton ──────────────────────────────────────────────────────
+// Import is deferred to avoid circular dependency (backfill.ts imports ingestTranscriptSource from this file).
+
+import type { BackfillQueue } from "./backfill.js";
+
+let backfillQueue: BackfillQueue | null = null;
+
+export function getBackfillQueue(): BackfillQueue | null {
+  return backfillQueue;
+}
+
+export async function createBackfillQueue(): Promise<BackfillQueue> {
+  const { BackfillQueue: BQ } = await import("./backfill.js");
+  backfillQueue = new BQ();
+  return backfillQueue;
 }
