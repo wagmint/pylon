@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import { join, basename } from "path";
 import { homedir } from "os";
 import type { SessionInfo, ProjectInfo } from "../types/index.js";
+import { normalizeProjectPath } from "../core/git-state.js";
 
 function getClaudeProjectsDir(claudeDir?: string): string {
   if (claudeDir) return join(claudeDir, "projects");
@@ -200,7 +201,7 @@ export function getActiveSessions(): SessionInfo[] {
         sessions.push({
           id,
           path: jsonlPath,
-          projectPath: decodeProjectName(basename(dir)),
+          projectPath: normalizeProjectPath(decodeProjectName(basename(dir)), jsonlPath),
           createdAt: stat.birthtime,
           modifiedAt: stat.mtime,
           sizeBytes: stat.size,
@@ -300,7 +301,7 @@ function listSessionsInDir(dir: string): SessionInfo[] {
     sessions.push({
       id: basename(entry, ".jsonl"),
       path: fullPath,
-      projectPath: decodeProjectName(basename(dir)),
+      projectPath: normalizeProjectPath(decodeProjectName(basename(dir)), fullPath),
       createdAt: stat.birthtime,
       modifiedAt: stat.mtime,
       sizeBytes: stat.size,
