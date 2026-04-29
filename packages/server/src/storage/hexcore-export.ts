@@ -97,8 +97,6 @@ export interface HexcoreExportSessionPayload {
   evidence: {
     messages: unknown[];
     planItems: unknown[];
-    commands: unknown[];
-    fileTouches: unknown[];
     approvals: unknown[];
     errors: unknown[];
     plans: ExportPlan[];
@@ -375,33 +373,6 @@ export function buildHexcoreExportPayload(
     WHERE session_id = ?
     ORDER BY line_number ASC, ordinal ASC
   `);
-  const commandStmt = db.prepare(`
-    SELECT
-      line_number as lineNumber,
-      tool_call_id as toolCallId,
-      command_text as commandText,
-      is_git_commit as isGitCommit,
-      is_git_push as isGitPush,
-      is_git_pull as isGitPull,
-      timestamp
-    FROM commands
-    WHERE session_id = ?
-    ORDER BY line_number ASC
-  `);
-  const fileTouchStmt = db.prepare(`
-    SELECT
-      line_number as lineNumber,
-      tool_call_id as toolCallId,
-      file_path as filePath,
-      module_key as moduleKey,
-      action,
-      source_tool as sourceTool,
-      detail,
-      timestamp
-    FROM file_touches
-    WHERE session_id = ?
-    ORDER BY line_number ASC
-  `);
   const approvalStmt = db.prepare(`
     SELECT
       line_number as lineNumber,
@@ -461,8 +432,6 @@ export function buildHexcoreExportPayload(
     const evidence = {
       messages: messageStmt.all(session.sessionId),
       planItems,
-      commands: commandStmt.all(session.sessionId),
-      fileTouches: fileTouchStmt.all(session.sessionId),
       approvals: approvalStmt.all(session.sessionId),
       errors,
       plans,
