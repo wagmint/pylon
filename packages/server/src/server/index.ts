@@ -822,8 +822,6 @@ export function createApp(options?: { dashboardDir?: string }): Hono {
         sourceLastEventAt: session.sourceLastEventAt,
         messageCount: session.evidence.messages.length,
         planItemCount: session.evidence.planItems.length,
-        commandCount: session.evidence.commands.length,
-        fileTouchCount: session.evidence.fileTouches.length,
         approvalCount: session.evidence.approvals.length,
         errorCount: session.evidence.errors.length,
       }));
